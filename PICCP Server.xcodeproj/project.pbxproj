@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D1E2F3A405162738495A6B7D /* PICCPCore in Frameworks */ = {isa = PBXBuildFile; productRef = E1F2A3B405162738495A6B7D /* PICCPCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		251C71012F00A529007DB82C /* PICCP Server.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "PICCP Server.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D1E2F3A405162738495A6B7D /* PICCPCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = "PICCP Server";
 			packageProductDependencies = (
+				E1F2A3B405162738495A6B7D /* PICCPCore */,
 			);
 			productName = "PICCP Server";
 			productReference = 251C71012F00A529007DB82C /* PICCP Server.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 251C70F82F00A529007DB82C;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../PICCPCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 251C71022F00A529007DB82C /* Products */;
 			projectDirPath = "";
@@ -256,7 +265,17 @@
 				DEVELOPMENT_TEAM = 9MY7SXN56X;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -288,7 +307,17 @@
 				DEVELOPMENT_TEAM = 9MY7SXN56X;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -331,6 +360,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../PICCPCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../PICCPCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E1F2A3B405162738495A6B7D /* PICCPCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../PICCPCore" */;
+			productName = PICCPCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 251C70F92F00A529007DB82C /* Project object */;
 }
