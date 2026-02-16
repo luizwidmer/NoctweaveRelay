@@ -1,6 +1,6 @@
 //
 //  PICCP_ServerApp.swift
-//  PICCP Server
+//  Noctyra Relay
 //
 //  Created by Luiz Fernando Widmer Neto on 27/12/25.
 //
