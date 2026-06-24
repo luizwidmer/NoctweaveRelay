@@ -277,8 +277,13 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 					ENABLE_USER_SELECTED_FILES = readwrite;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+					INFOPLIST_KEY_NSBonjourServices = (
+						"_noctyra._tcp",
+					);
+					INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Noctyra Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -319,8 +324,13 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 					ENABLE_USER_SELECTED_FILES = readwrite;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+					INFOPLIST_KEY_NSBonjourServices = (
+						"_noctyra._tcp",
+					);
+					INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Noctyra Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

@@ -1,16 +1,91 @@
 import Combine
 import Foundation
 import PICCPCore
+import Network
+#if canImport(Security)
+import Security
+#endif
 #if canImport(AppKit)
 import AppKit
 import UniformTypeIdentifiers
 #endif
 
-enum RelayStorageMode: String, CaseIterable, Identifiable {
+enum RelayStorageMode: String, CaseIterable, Identifiable, Codable {
     case disk
     case memory
 
     var id: String { rawValue }
+}
+
+enum RelayTransportSecurityMode: String, CaseIterable, Identifiable, Codable {
+    case plainTCP
+    case relayManagedTLS
+    case reverseProxyTLS
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .plainTCP:
+            return "No TLS"
+        case .relayManagedTLS:
+            return "Relay TLS"
+        case .reverseProxyTLS:
+            return "Proxy TLS"
+        }
+    }
+
+    var usesRelayTLS: Bool {
+        self == .relayManagedTLS
+    }
+
+    var advertisesTLS: Bool {
+        self == .relayManagedTLS || self == .reverseProxyTLS
+    }
+}
+
+enum RelayCommunicationMode: String, CaseIterable, Identifiable, Codable {
+    case tcp
+    case http
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .tcp:
+            return "TCP Frames"
+        case .http:
+            return "HTTP API"
+        }
+    }
+
+    var relayTransport: RelayEndpointTransport {
+        switch self {
+        case .tcp:
+            return .tcp
+        case .http:
+            return .http
+        }
+    }
+}
+
+enum RelayTemporalBucketMode: String, CaseIterable, Identifiable, Codable {
+    case disabled
+    case single
+    case multi
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .disabled:
+            return "Off"
+        case .single:
+            return "Single"
+        case .multi:
+            return "Multi"
+        }
+    }
 }
 
 private enum RelayStorePathValidationError: LocalizedError {
@@ -24,7 +99,7 @@ private enum RelayStorePathValidationError: LocalizedError {
         case .invalidStorePath:
             return "Choose a valid file path for relay storage."
         case .storePathIsDirectory:
-            return "Store path points to a directory. Choose a file path (for example relay_store.json)."
+            return "Store path points to a directory. Choose a file path (for example relay_store.sqlite)."
         case .storeDirectoryNotWritable(let path):
             return "Store directory is not writable: \(path)"
         case .storeFileNotWritable(let path):
@@ -32,6 +107,136 @@ private enum RelayStorePathValidationError: LocalizedError {
         }
     }
 }
+
+enum StartupPermissionStatus: String {
+    case idle
+    case requesting
+    case granted
+    case denied
+    case failed
+
+    var displayTitle: String {
+        switch self {
+        case .idle:
+            return "Not requested"
+        case .requesting:
+            return "Requesting"
+        case .granted:
+            return "Granted"
+        case .denied:
+            return "Denied"
+        case .failed:
+            return "Failed"
+        }
+    }
+}
+
+private final class PermissionProbeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var resolved = false
+
+    nonisolated func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !resolved else { return false }
+        resolved = true
+        return true
+    }
+}
+
+#if canImport(Security)
+private enum RelaySecretStore {
+    enum Account: String {
+        case relayPassword = "relay-password"
+        case coordinatorRegistrationToken = "coordinator-registration-token"
+        case federationForwardingAuthToken = "federation-forwarding-auth-token"
+        case tlsIdentityPassword = "tls-identity-password"
+        case coordinatorDirectorySigningKey = "coordinator-directory-signing-key"
+    }
+
+    private static let service = "com.noctyra.relay.configuration"
+
+    static func load(account: Account) throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account.rawValue,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound {
+            return nil
+        }
+        guard status == errSecSuccess,
+              let data = item as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            throw RelaySecretStoreError.keychain(status)
+        }
+        return value
+    }
+
+    static func save(_ value: String, account: Account) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account.rawValue,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any
+        ]
+        guard !value.isEmpty else {
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw RelaySecretStoreError.keychain(status)
+            }
+            return
+        }
+
+        let data = Data(value.utf8)
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess {
+            return
+        }
+        guard updateStatus == errSecItemNotFound else {
+            throw RelaySecretStoreError.keychain(updateStatus)
+        }
+
+        var attributes = query
+        attributes[kSecValueData as String] = data
+        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw RelaySecretStoreError.keychain(addStatus)
+        }
+    }
+}
+
+private enum RelaySecretStoreError: LocalizedError {
+    case keychain(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .keychain(let status):
+            return "Unable to access relay secrets in Keychain (status \(status))."
+        }
+    }
+}
+#else
+private enum RelaySecretStore {
+    enum Account {
+        case relayPassword
+        case coordinatorRegistrationToken
+        case federationForwardingAuthToken
+        case tlsIdentityPassword
+    }
+
+    static func load(account: Account) throws -> String? { nil }
+    static func save(_ value: String, account: Account) throws {}
+}
+#endif
 
 @MainActor
 final class ServerViewModel: ObservableObject {
@@ -42,44 +247,86 @@ final class ServerViewModel: ObservableObject {
     @Published var federationName: String = ""
     @Published var federationDescription: String = ""
     @Published var federationAllowList: String = ""
+    @Published var federationCoordinatorList: String = ""
+    @Published var federationCoordinatorPublicKeys: String = ""
+    @Published var coordinatorHeartbeatSeconds: String = "45"
+    @Published var curatedStrictPolicyEnabled: Bool = true
+    @Published var curatedCoordinatorQuorum: String = "1"
+    @Published var curatedRequireSignedDirectory: Bool = true
+    @Published var allowPrivateFederationEndpoints: Bool = false
+    @Published var advertisedEndpoint: String = ""
     @Published var federationSourceURL: String = ""
     @Published var federationSourceStatus: String?
     @Published var federationSourceLastUpdated: Date?
+    @Published var temporalBucketMode: RelayTemporalBucketMode = .single
     @Published var temporalBucketMinutes: String = "5"
+    @Published var temporalBucketScheduleMinutes: String = ""
+    @Published var attachmentDefaultTTLMinutes: String = "60"
+    @Published var attachmentMaxTTLMinutes: String = "360"
+    @Published var attachmentsEnabled: Bool = true
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
+    @Published var groupCreationMode: GroupCreationMode = .allowed
     @Published var storageMode: RelayStorageMode = .disk
     @Published var storePath: String = ""
     @Published var relayPassword: String = ""
     @Published var relayPasswordConfirmation: String = ""
-    @Published var tlsEnabled: Bool = false
+    @Published var coordinatorRegistrationToken: String = ""
+    @Published var federationForwardingAuthToken: String = ""
+    @Published var communicationMode: RelayCommunicationMode = .tcp
+    @Published var transportSecurityMode: RelayTransportSecurityMode = .plainTCP
     @Published var tlsIdentityPKCS12Path: String = ""
     @Published var tlsIdentityPassword: String = ""
     @Published var isRunning = false
     @Published var logs: [String] = []
     @Published var lastError: String?
+    @Published var localNetworkPermissionStatus: StartupPermissionStatus = .idle
+    @Published var incomingConnectionPermissionStatus: StartupPermissionStatus = .idle
+    @Published var permissionProbeMessage: String?
+    @Published var permissionProbeRunning = false
+    @Published var permissionProbeHasRun = false
 
     private let defaultStoreURL: URL
+    private let settingsURL: URL
     private var store: RelayStore
     private var server: RelayServer
     let softwareVersion: String
     private let defaultRelayPort: UInt16 = 9339
+    private var settingsCancellables: Set<AnyCancellable> = []
+    private var isApplyingPersistedSettings = false
+
+    var effectiveTLSEnabled: Bool {
+        transportSecurityMode.advertisesTLS
+    }
+
+    var permissionPreflightReady: Bool {
+        permissionProbeHasRun
+    }
 
     init() {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PICCPServer", isDirectory: true)
-        let storeURL = directory.appendingPathComponent("relay_store.json")
+        let storeURL = directory.appendingPathComponent("relay_store.sqlite")
         self.defaultStoreURL = storeURL
+        self.settingsURL = directory.appendingPathComponent("relay_settings.json")
         self.storePath = storeURL.path
-        let configuration = RelayConfiguration()
-        self.store = RelayStore(storeURL: storeURL, temporalBucketSeconds: configuration.temporalBucketSeconds)
-        self.server = RelayServer(store: store, configuration: configuration)
         self.softwareVersion = Self.makeSoftwareVersion()
+        let bootstrapConfiguration = RelayConfiguration()
+        self.store = RelayStore(
+            storeURL: storeURL,
+            temporalBucketSeconds: bootstrapConfiguration.temporalBucketSeconds,
+            temporalBucketScheduleSeconds: bootstrapConfiguration.temporalBucketScheduleSeconds
+        )
+        self.server = RelayServer(store: store, configuration: bootstrapConfiguration)
         server.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event: event)
             }
         }
+        loadPersistedSettingsIfAvailable()
+        rebuildRuntimeWithCurrentSettings()
+        bindSettingsPersistence()
+        persistSettings()
     }
 
     func start() {
@@ -104,14 +351,28 @@ final class ServerViewModel: ObservableObject {
             }
         }
         let trimmedTLSPath = tlsIdentityPKCS12Path.trimmingCharacters(in: .whitespacesAndNewlines)
-        if tlsEnabled {
+        if transportSecurityMode.usesRelayTLS {
             guard !trimmedTLSPath.isEmpty else {
-                lastError = "TLS is enabled. Choose a PKCS#12 certificate identity (.p12/.pfx)."
+                lastError = "Relay TLS is enabled. Choose a PKCS#12 certificate identity (.p12/.pfx)."
                 return
             }
             let expandedPath = (trimmedTLSPath as NSString).expandingTildeInPath
             guard FileManager.default.fileExists(atPath: expandedPath) else {
                 lastError = "TLS certificate file not found at \(expandedPath)."
+                return
+            }
+        } else if transportSecurityMode == .reverseProxyTLS {
+            guard let advertised = parseEndpoint(advertisedEndpoint) else {
+                lastError = "Proxy TLS mode requires an advertised endpoint (for example tls://relay.example.org:443)."
+                return
+            }
+            guard advertised.useTLS else {
+                lastError = "Advertised endpoint must be TLS-enabled in Proxy TLS mode (use tls:// or https://)."
+                return
+            }
+            guard advertised.transport == communicationMode.relayTransport else {
+                let requiredScheme = communicationMode == .http ? "https://" : "tls://"
+                lastError = "Advertised endpoint must match communication mode. Use \(requiredScheme) for Proxy TLS."
                 return
             }
         }
@@ -123,7 +384,11 @@ final class ServerViewModel: ObservableObject {
             return
         }
         let configuration = buildConfiguration()
-        store = RelayStore(storeURL: resolvedStoreURL, temporalBucketSeconds: configuration.temporalBucketSeconds)
+        store = RelayStore(
+            storeURL: resolvedStoreURL,
+            temporalBucketSeconds: configuration.temporalBucketSeconds,
+            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds
+        )
         server = RelayServer(store: store, configuration: configuration)
         server.onEvent = { [weak self] event in
             Task { @MainActor in
@@ -154,16 +419,36 @@ final class ServerViewModel: ObservableObject {
         }
     }
 
+    func runStartupPermissionProbe() {
+        guard !permissionProbeRunning else { return }
+        permissionProbeRunning = true
+        localNetworkPermissionStatus = .requesting
+        incomingConnectionPermissionStatus = .requesting
+        permissionProbeMessage = "Requesting local network and incoming listener permissions..."
+        Task {
+            let localResult = await Self.probeLocalNetworkPermission()
+            let incomingResult = await Self.probeIncomingConnectionPermission()
+            await MainActor.run {
+                localNetworkPermissionStatus = localResult.status
+                incomingConnectionPermissionStatus = incomingResult.status
+                permissionProbeRunning = false
+                permissionProbeHasRun = true
+                let summaries = [localResult.message, incomingResult.message].compactMap { $0 }
+                permissionProbeMessage = summaries.joined(separator: "\n")
+            }
+        }
+    }
+
     private func handle(event: RelayServer.Event) {
         switch event {
         case .started(let port):
             logs.append("Server started on \(host):\(port)")
         case .stopped:
             logs.append("Server stopped")
-        case .delivered(let inboxId, let storedCount):
-            logs.append("Delivered to \(inboxId.prefix(8))... (\(storedCount) total)")
-        case .fetched(let inboxId, let count):
-            logs.append("Fetched \(count) from \(inboxId.prefix(8))...")
+        case .delivered(_, let storedCount):
+            logs.append("Accepted encrypted delivery (\(storedCount) queued)")
+        case .fetched(_, let count):
+            logs.append("Returned \(count) encrypted envelope(s)")
         case .error(let message):
             logs.append("Error: \(message)")
         }
@@ -178,11 +463,37 @@ final class ServerViewModel: ObservableObject {
         let trimmedRelayName = relayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = operatorNote.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = relayPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let registrationToken = coordinatorRegistrationToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let forwardingToken = federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let tlsPath = tlsIdentityPKCS12Path.trimmingCharacters(in: .whitespacesAndNewlines)
         let tlsPassword = tlsIdentityPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-        let minutes = Int(temporalBucketMinutes) ?? 5
-        let bucketSeconds = max(0, minutes) * 60
+        let minutes = max(1, Int(temporalBucketMinutes) ?? 5)
+        let singleBucketSeconds = minutes * 60
+        let scheduleSeconds = parseBucketScheduleMinutes(temporalBucketScheduleMinutes)
+        let activeScheduleSeconds: [Int]
+        let effectiveBucketSeconds: Int
+        switch temporalBucketMode {
+        case .disabled:
+            activeScheduleSeconds = []
+            effectiveBucketSeconds = 0
+        case .single:
+            activeScheduleSeconds = []
+            effectiveBucketSeconds = singleBucketSeconds
+        case .multi:
+            let defaultSchedule = [singleBucketSeconds]
+            activeScheduleSeconds = scheduleSeconds.isEmpty ? defaultSchedule : scheduleSeconds
+            effectiveBucketSeconds = activeScheduleSeconds.first ?? singleBucketSeconds
+        }
+        let defaultAttachmentTTLSeconds = max(1, Int(attachmentDefaultTTLMinutes) ?? 60) * 60
+        let maxAttachmentTTLSeconds = max(1, Int(attachmentMaxTTLMinutes) ?? 360) * 60
         let allowList = parseAllowList(federationAllowList)
+        let coordinators = parseCoordinatorEndpoints(
+            endpointsValue: federationCoordinatorList,
+            publicKeysValue: federationCoordinatorPublicKeys
+        )
+        let heartbeatSeconds = max(15, Int(coordinatorHeartbeatSeconds) ?? 45)
+        let curatedQuorum = max(1, Int(curatedCoordinatorQuorum) ?? 1)
+        let advertisedRelayEndpoint = parseEndpoint(advertisedEndpoint)
         let federation = FederationDescriptor(
             mode: federationMode,
             name: trimmedName.isEmpty ? nil : trimmedName,
@@ -191,16 +502,54 @@ final class ServerViewModel: ObservableObject {
         return RelayConfiguration(
             kind: relayKind,
             federation: federation,
-            temporalBucketSeconds: bucketSeconds,
+            temporalBucketSeconds: effectiveBucketSeconds,
+            temporalBucketScheduleSeconds: activeScheduleSeconds.isEmpty ? nil : activeScheduleSeconds,
+            attachmentDefaultTTLSeconds: defaultAttachmentTTLSeconds,
+            attachmentMaxTTLSeconds: maxAttachmentTTLSeconds,
+            attachmentsEnabled: attachmentsEnabled,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
+            groupCreationMode: groupCreationMode,
             accessPassword: password.isEmpty ? nil : password,
-            tlsEnabled: tlsEnabled,
-            tlsIdentityPKCS12Path: tlsPath.isEmpty ? nil : tlsPath,
-            tlsIdentityPassword: tlsPassword.isEmpty ? nil : tlsPassword,
-            federationAllowList: allowList
+            coordinatorRegistrationToken: registrationToken.isEmpty ? nil : registrationToken,
+            federationForwardingAuthToken: forwardingToken.isEmpty ? nil : forwardingToken,
+            tlsEnabled: transportSecurityMode.usesRelayTLS,
+            advertisedTLSEnabled: transportSecurityMode == .reverseProxyTLS ? true : nil,
+            transport: communicationMode.relayTransport,
+            tlsIdentityPKCS12Path: transportSecurityMode.usesRelayTLS && !tlsPath.isEmpty ? tlsPath : nil,
+            tlsIdentityPassword: transportSecurityMode.usesRelayTLS && !tlsPassword.isEmpty ? tlsPassword : nil,
+            federationCoordinatorEndpoints: coordinators.isEmpty ? nil : coordinators,
+            coordinatorHeartbeatSeconds: heartbeatSeconds,
+            coordinatorDirectorySigningPrivateKey: coordinatorDirectorySigningKey(),
+            curatedStrictPolicyEnabled: curatedStrictPolicyEnabled,
+            curatedCoordinatorQuorum: curatedQuorum,
+            curatedRequireSignedDirectory: curatedRequireSignedDirectory,
+            advertisedEndpoint: advertisedRelayEndpoint,
+            federationAllowList: allowList,
+            allowPrivateFederationEndpoints: allowPrivateFederationEndpoints
         )
+    }
+
+    private func coordinatorDirectorySigningKey() -> Data? {
+        guard relayKind == .coordinator else {
+            return nil
+        }
+        if let encoded = try? RelaySecretStore.load(account: .coordinatorDirectorySigningKey),
+           let existing = Data(base64Encoded: encoded),
+           existing.count == 32 {
+            return existing
+        }
+        let generated = FederationDirectorySignature.privateKeyData(from: nil)
+        do {
+            try RelaySecretStore.save(
+                generated.base64EncodedString(),
+                account: .coordinatorDirectorySigningKey
+            )
+        } catch {
+            logs.append("Failed to persist coordinator signing key: \(error.localizedDescription)")
+        }
+        return generated
     }
 
     private func resolvedStoreURL() -> URL? {
@@ -213,8 +562,31 @@ final class ServerViewModel: ObservableObject {
                 return defaultStoreURL
             }
             let expanded = (trimmed as NSString).expandingTildeInPath
-            return URL(fileURLWithPath: expanded)
+            return normalizedSQLiteURL(URL(fileURLWithPath: expanded))
         }
+    }
+
+    private func normalizedSQLiteURL(_ url: URL) -> URL {
+        let ext = url.pathExtension.lowercased()
+        if ext == "sqlite" || ext == "db" {
+            return url
+        }
+        let base = url.pathExtension.isEmpty ? url : url.deletingPathExtension()
+        return base.appendingPathExtension("sqlite")
+    }
+
+    private func parseBucketScheduleMinutes(_ value: String) -> [Int] {
+        Array(
+            Set(
+                value
+            .split(separator: ",")
+            .compactMap { component in
+                let trimmed = component.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let minutes = Int(trimmed), minutes > 0 else { return nil }
+                return minutes * 60
+            }
+            )
+        ).sorted()
     }
 
     var storageLocationDescription: String {
@@ -263,25 +635,38 @@ final class ServerViewModel: ObservableObject {
 #if canImport(AppKit)
         let panel = NSSavePanel()
         panel.canCreateDirectories = true
-        panel.allowedContentTypes = [UTType.json]
+        panel.allowedContentTypes = [UTType(filenameExtension: "sqlite") ?? .data]
         panel.prompt = "Select"
         panel.message = "Choose where relay data should be stored on disk."
         let trimmed = storePath.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialPath = trimmed.isEmpty ? defaultStoreURL.path : trimmed
         let initialURL = URL(fileURLWithPath: (initialPath as NSString).expandingTildeInPath)
         panel.directoryURL = initialURL.deletingLastPathComponent()
-        panel.nameFieldStringValue = initialURL.lastPathComponent.isEmpty ? "relay_store.json" : initialURL.lastPathComponent
+        panel.nameFieldStringValue = initialURL.lastPathComponent.isEmpty ? "relay_store.sqlite" : initialURL.lastPathComponent
         if panel.runModal() == .OK, let url = panel.url {
-            storePath = url.path
+            storePath = normalizedSQLiteURL(url).path
         }
 #endif
     }
 
     private struct FederationSourceDocument: Decodable {
+        struct CoordinatorEntry: Decodable {
+            var endpoint: String
+            var directorySigningPublicKey: String?
+        }
+
         var name: String?
         var description: String?
         var mode: String?
         var allowlist: [String]?
+        var coordinators: [String]?
+        var coordinatorEntries: [CoordinatorEntry]?
+        var coordinatorPublicKeys: [String]?
+        var coordinatorHeartbeatSeconds: Int?
+        var curatedStrictPolicyEnabled: Bool?
+        var curatedCoordinatorQuorum: Int?
+        var curatedRequireSignedDirectory: Bool?
+        var allowPrivateFederationEndpoints: Bool?
     }
 
     private func loadFederationSource() async {
@@ -296,10 +681,18 @@ final class ServerViewModel: ObservableObject {
         }
         federationSourceStatus = "Fetching..."
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 15
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let (data, response) = try await URLSession.shared.data(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 federationSourceStatus = nil
                 lastError = "Federation fetch failed with HTTP \(http.statusCode)."
+                return
+            }
+            guard data.count <= 1_000_000 else {
+                federationSourceStatus = nil
+                lastError = "Federation document exceeds the 1 MB limit."
                 return
             }
             let document = try JSONDecoder().decode(FederationSourceDocument.self, from: data)
@@ -315,6 +708,30 @@ final class ServerViewModel: ObservableObject {
             if let allowlist = document.allowlist, !allowlist.isEmpty {
                 federationAllowList = allowlist.joined(separator: ", ")
             }
+            if let coordinators = document.coordinators, !coordinators.isEmpty {
+                federationCoordinatorList = coordinators.joined(separator: ", ")
+            }
+            if let coordinatorEntries = document.coordinatorEntries, !coordinatorEntries.isEmpty {
+                federationCoordinatorList = coordinatorEntries.map(\.endpoint).joined(separator: ", ")
+                federationCoordinatorPublicKeys = coordinatorEntries.compactMap(\.directorySigningPublicKey).joined(separator: ", ")
+            } else if let coordinatorPublicKeys = document.coordinatorPublicKeys, !coordinatorPublicKeys.isEmpty {
+                federationCoordinatorPublicKeys = coordinatorPublicKeys.joined(separator: ", ")
+            }
+            if let heartbeatSeconds = document.coordinatorHeartbeatSeconds, heartbeatSeconds > 0 {
+                coordinatorHeartbeatSeconds = String(max(15, heartbeatSeconds))
+            }
+            if let strict = document.curatedStrictPolicyEnabled {
+                curatedStrictPolicyEnabled = strict
+            }
+            if let quorum = document.curatedCoordinatorQuorum, quorum > 0 {
+                curatedCoordinatorQuorum = String(max(1, quorum))
+            }
+            if let requireSigned = document.curatedRequireSignedDirectory {
+                curatedRequireSignedDirectory = requireSigned
+            }
+            if let allowPrivate = document.allowPrivateFederationEndpoints {
+                allowPrivateFederationEndpoints = allowPrivate
+            }
             federationSourceLastUpdated = Date()
             federationSourceStatus = "Loaded \(document.allowlist?.count ?? 0) allowlist entries."
         } catch {
@@ -329,6 +746,23 @@ final class ServerViewModel: ObservableObject {
             .compactMap { parseEndpoint(String($0)) }
     }
 
+    private func parseCoordinatorEndpoints(
+        endpointsValue: String,
+        publicKeysValue: String
+    ) -> [RelayEndpoint] {
+        let endpoints = parseAllowList(endpointsValue)
+        let publicKeys = publicKeysValue
+            .split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == ";" })
+            .map { Data(base64Encoded: String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return endpoints.enumerated().map { index, endpoint in
+            var endpoint = endpoint
+            if index < publicKeys.count {
+                endpoint.directorySigningPublicKey = publicKeys[index]
+            }
+            return endpoint
+        }
+    }
+
     private func parseFederationMode(_ value: String) -> FederationMode? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return FederationMode(rawValue: trimmed)
@@ -337,10 +771,35 @@ final class ServerViewModel: ObservableObject {
     private func parseEndpoint(_ value: String) -> RelayEndpoint? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if let url = URLComponents(string: trimmed), let scheme = url.scheme, ["http", "https"].contains(scheme.lowercased()) {
+        if let url = URLComponents(string: trimmed), let scheme = url.scheme {
             guard let host = url.host else { return nil }
-            let port = UInt16(url.port ?? Int(defaultRelayPort))
-            return RelayEndpoint(host: host, port: port, useTLS: scheme.lowercased() == "https")
+            let loweredScheme = scheme.lowercased()
+            let defaultPort: UInt16
+            switch loweredScheme {
+            case "https", "wss":
+                defaultPort = 443
+            case "http", "ws":
+                defaultPort = 80
+            default:
+                defaultPort = defaultRelayPort
+            }
+            let port = UInt16(url.port ?? Int(defaultPort))
+            switch loweredScheme {
+            case "https":
+                return RelayEndpoint(host: host, port: port, useTLS: true, transport: .http)
+            case "http":
+                return RelayEndpoint(host: host, port: port, useTLS: false, transport: .http)
+            case "tls":
+                return RelayEndpoint(host: host, port: port, useTLS: true, transport: .tcp)
+            case "tcp":
+                return RelayEndpoint(host: host, port: port, useTLS: false, transport: .tcp)
+            case "wss":
+                return RelayEndpoint(host: host, port: port, useTLS: true, transport: .websocket)
+            case "ws":
+                return RelayEndpoint(host: host, port: port, useTLS: false, transport: .websocket)
+            default:
+                return nil
+            }
         }
         let base = trimmed.split(separator: "/").first.map(String.init) ?? trimmed
         if base.hasPrefix("["), let close = base.firstIndex(of: "]") {
@@ -388,6 +847,389 @@ final class ServerViewModel: ObservableObject {
             return "\(base) \(build)"
         default:
             return base
+        }
+    }
+
+    private func rebuildRuntimeWithCurrentSettings() {
+        let configuration = buildConfiguration()
+        store = RelayStore(
+            storeURL: resolvedStoreURL(),
+            temporalBucketSeconds: configuration.temporalBucketSeconds,
+            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds
+        )
+        server = RelayServer(store: store, configuration: configuration)
+        server.onEvent = { [weak self] event in
+            Task { @MainActor in
+                self?.handle(event: event)
+            }
+        }
+    }
+
+    private struct PersistedSettings: Codable {
+        var host: String
+        var port: String
+        var relayKind: RelayKind
+        var federationMode: FederationMode
+        var federationName: String
+        var federationDescription: String
+        var federationAllowList: String
+        var federationCoordinatorList: String
+        var federationCoordinatorPublicKeys: String?
+        var coordinatorHeartbeatSeconds: String
+        var curatedStrictPolicyEnabled: Bool
+        var curatedCoordinatorQuorum: String
+        var curatedRequireSignedDirectory: Bool
+        var allowPrivateFederationEndpoints: Bool?
+        var advertisedEndpoint: String
+        var federationSourceURL: String
+        var temporalBucketMode: RelayTemporalBucketMode?
+        var temporalBucketMinutes: String
+        var temporalBucketScheduleMinutes: String
+        var attachmentDefaultTTLMinutes: String
+        var attachmentMaxTTLMinutes: String
+        var attachmentsEnabled: Bool?
+        var relayName: String
+        var operatorNote: String
+        var groupCreationMode: GroupCreationMode
+        var storageMode: RelayStorageMode
+        var storePath: String
+        // Optional only for migration from older settings files. New files never
+        // persist secrets; they live in the local Keychain.
+        var relayPassword: String?
+        var relayPasswordConfirmation: String?
+        var coordinatorRegistrationToken: String?
+        var federationForwardingAuthToken: String?
+        var communicationMode: RelayCommunicationMode
+        var transportSecurityMode: RelayTransportSecurityMode
+        var tlsIdentityPKCS12Path: String
+        var tlsIdentityPassword: String?
+    }
+
+    private func bindSettingsPersistence() {
+        let observed: [AnyPublisher<Void, Never>] = [
+            $host.map { _ in () }.eraseToAnyPublisher(),
+            $port.map { _ in () }.eraseToAnyPublisher(),
+            $relayKind.map { _ in () }.eraseToAnyPublisher(),
+            $federationMode.map { _ in () }.eraseToAnyPublisher(),
+            $federationName.map { _ in () }.eraseToAnyPublisher(),
+            $federationDescription.map { _ in () }.eraseToAnyPublisher(),
+            $federationAllowList.map { _ in () }.eraseToAnyPublisher(),
+            $federationCoordinatorList.map { _ in () }.eraseToAnyPublisher(),
+            $federationCoordinatorPublicKeys.map { _ in () }.eraseToAnyPublisher(),
+            $coordinatorHeartbeatSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $curatedStrictPolicyEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $curatedCoordinatorQuorum.map { _ in () }.eraseToAnyPublisher(),
+            $curatedRequireSignedDirectory.map { _ in () }.eraseToAnyPublisher(),
+            $allowPrivateFederationEndpoints.map { _ in () }.eraseToAnyPublisher(),
+            $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
+            $federationSourceURL.map { _ in () }.eraseToAnyPublisher(),
+            $temporalBucketMode.map { _ in () }.eraseToAnyPublisher(),
+            $temporalBucketMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $temporalBucketScheduleMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $attachmentDefaultTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $attachmentMaxTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $attachmentsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $relayName.map { _ in () }.eraseToAnyPublisher(),
+            $operatorNote.map { _ in () }.eraseToAnyPublisher(),
+            $groupCreationMode.map { _ in () }.eraseToAnyPublisher(),
+            $storageMode.map { _ in () }.eraseToAnyPublisher(),
+            $storePath.map { _ in () }.eraseToAnyPublisher(),
+            $relayPassword.map { _ in () }.eraseToAnyPublisher(),
+            $relayPasswordConfirmation.map { _ in () }.eraseToAnyPublisher(),
+            $coordinatorRegistrationToken.map { _ in () }.eraseToAnyPublisher(),
+            $federationForwardingAuthToken.map { _ in () }.eraseToAnyPublisher(),
+            $communicationMode.map { _ in () }.eraseToAnyPublisher(),
+            $transportSecurityMode.map { _ in () }.eraseToAnyPublisher(),
+            $tlsIdentityPKCS12Path.map { _ in () }.eraseToAnyPublisher(),
+            $tlsIdentityPassword.map { _ in () }.eraseToAnyPublisher()
+        ]
+
+        Publishers.MergeMany(observed)
+            .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
+            .sink { [weak self] in
+                guard let self else { return }
+                if self.isApplyingPersistedSettings {
+                    return
+                }
+                self.persistSettings()
+            }
+            .store(in: &settingsCancellables)
+    }
+
+    private func makePersistedSettings() -> PersistedSettings {
+        PersistedSettings(
+            host: host,
+            port: port,
+            relayKind: relayKind,
+            federationMode: federationMode,
+            federationName: federationName,
+            federationDescription: federationDescription,
+            federationAllowList: federationAllowList,
+            federationCoordinatorList: federationCoordinatorList,
+            federationCoordinatorPublicKeys: federationCoordinatorPublicKeys,
+            coordinatorHeartbeatSeconds: coordinatorHeartbeatSeconds,
+            curatedStrictPolicyEnabled: curatedStrictPolicyEnabled,
+            curatedCoordinatorQuorum: curatedCoordinatorQuorum,
+            curatedRequireSignedDirectory: curatedRequireSignedDirectory,
+            allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
+            advertisedEndpoint: advertisedEndpoint,
+            federationSourceURL: federationSourceURL,
+            temporalBucketMode: temporalBucketMode,
+            temporalBucketMinutes: temporalBucketMinutes,
+            temporalBucketScheduleMinutes: temporalBucketScheduleMinutes,
+            attachmentDefaultTTLMinutes: attachmentDefaultTTLMinutes,
+            attachmentMaxTTLMinutes: attachmentMaxTTLMinutes,
+            attachmentsEnabled: attachmentsEnabled,
+            relayName: relayName,
+            operatorNote: operatorNote,
+            groupCreationMode: groupCreationMode,
+            storageMode: storageMode,
+            storePath: storePath,
+            relayPassword: nil,
+            relayPasswordConfirmation: nil,
+            coordinatorRegistrationToken: nil,
+            federationForwardingAuthToken: nil,
+            communicationMode: communicationMode,
+            transportSecurityMode: transportSecurityMode,
+            tlsIdentityPKCS12Path: tlsIdentityPKCS12Path,
+            tlsIdentityPassword: nil
+        )
+    }
+
+    private func persistSettings() {
+        let settings = makePersistedSettings()
+        do {
+            try RelaySecretStore.save(relayPassword, account: .relayPassword)
+            try RelaySecretStore.save(coordinatorRegistrationToken, account: .coordinatorRegistrationToken)
+            try RelaySecretStore.save(federationForwardingAuthToken, account: .federationForwardingAuthToken)
+            try RelaySecretStore.save(tlsIdentityPassword, account: .tlsIdentityPassword)
+            let directory = settingsURL.deletingLastPathComponent()
+            if !FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+            let data = try JSONEncoder().encode(settings)
+            try data.write(to: settingsURL, options: [.atomic])
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: settingsURL.path
+            )
+        } catch {
+            // Keep runtime functional even if settings cannot be written.
+            logs.append("Settings persistence failed: \(error.localizedDescription)")
+            if logs.count > 200 {
+                logs.removeFirst(logs.count - 200)
+            }
+        }
+    }
+
+    private func loadPersistedSettingsIfAvailable() {
+        guard FileManager.default.fileExists(atPath: settingsURL.path) else {
+            return
+        }
+        do {
+            let data = try Data(contentsOf: settingsURL)
+            let persisted = try JSONDecoder().decode(PersistedSettings.self, from: data)
+            isApplyingPersistedSettings = true
+            host = persisted.host
+            port = persisted.port
+            relayKind = persisted.relayKind
+            federationMode = persisted.federationMode
+            federationName = persisted.federationName
+            federationDescription = persisted.federationDescription
+            federationAllowList = persisted.federationAllowList
+            federationCoordinatorList = persisted.federationCoordinatorList
+            federationCoordinatorPublicKeys = persisted.federationCoordinatorPublicKeys ?? ""
+            coordinatorHeartbeatSeconds = persisted.coordinatorHeartbeatSeconds
+            curatedStrictPolicyEnabled = persisted.curatedStrictPolicyEnabled
+            curatedCoordinatorQuorum = persisted.curatedCoordinatorQuorum
+            curatedRequireSignedDirectory = persisted.curatedRequireSignedDirectory
+            allowPrivateFederationEndpoints = persisted.allowPrivateFederationEndpoints ?? false
+            advertisedEndpoint = persisted.advertisedEndpoint
+            federationSourceURL = persisted.federationSourceURL
+            temporalBucketMinutes = persisted.temporalBucketMinutes
+            temporalBucketScheduleMinutes = persisted.temporalBucketScheduleMinutes
+            if let persistedMode = persisted.temporalBucketMode {
+                temporalBucketMode = persistedMode
+            } else {
+                temporalBucketMode = parseBucketScheduleMinutes(temporalBucketScheduleMinutes).isEmpty ? .single : .multi
+            }
+            attachmentDefaultTTLMinutes = persisted.attachmentDefaultTTLMinutes
+            attachmentMaxTTLMinutes = persisted.attachmentMaxTTLMinutes
+            attachmentsEnabled = persisted.attachmentsEnabled ?? true
+            relayName = persisted.relayName
+            operatorNote = persisted.operatorNote
+            groupCreationMode = persisted.groupCreationMode
+            storageMode = persisted.storageMode
+            storePath = persisted.storePath
+            let legacyRelayPassword = persisted.relayPassword ?? ""
+            relayPassword = (try? RelaySecretStore.load(account: .relayPassword)) ?? legacyRelayPassword
+            relayPasswordConfirmation = relayPassword
+            coordinatorRegistrationToken =
+                (try? RelaySecretStore.load(account: .coordinatorRegistrationToken))
+                ?? persisted.coordinatorRegistrationToken
+                ?? ""
+            federationForwardingAuthToken =
+                (try? RelaySecretStore.load(account: .federationForwardingAuthToken))
+                ?? persisted.federationForwardingAuthToken
+                ?? ""
+            communicationMode = persisted.communicationMode
+            transportSecurityMode = persisted.transportSecurityMode
+            tlsIdentityPKCS12Path = persisted.tlsIdentityPKCS12Path
+            tlsIdentityPassword =
+                (try? RelaySecretStore.load(account: .tlsIdentityPassword))
+                ?? persisted.tlsIdentityPassword
+                ?? ""
+            isApplyingPersistedSettings = false
+            // Re-save immediately to migrate any legacy plaintext secrets out
+            // of relay_settings.json.
+            persistSettings()
+        } catch {
+            isApplyingPersistedSettings = false
+            logs.append("Failed to load persisted settings: \(error.localizedDescription)")
+            if logs.count > 200 {
+                logs.removeFirst(logs.count - 200)
+            }
+        }
+    }
+
+    private struct PermissionProbeResult {
+        let status: StartupPermissionStatus
+        let message: String?
+    }
+
+    private static func probeLocalNetworkPermission(timeoutSeconds: TimeInterval = 4.0) async -> PermissionProbeResult {
+        await withCheckedContinuation { continuation in
+            let queue = DispatchQueue(label: "NoctyraRelay.LocalNetworkPermission")
+            let descriptor = NWBrowser.Descriptor.bonjour(type: "_noctyra._tcp", domain: nil)
+            let browser = NWBrowser(for: descriptor, using: .tcp)
+            let gate = PermissionProbeGate()
+
+            @Sendable func finish(_ result: PermissionProbeResult) {
+                guard gate.claim() else { return }
+                browser.cancel()
+                continuation.resume(returning: result)
+            }
+
+            browser.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    finish(
+                        PermissionProbeResult(
+                            status: .granted,
+                            message: "Local network access is available."
+                        )
+                    )
+                case .failed(let error):
+                    finish(
+                        PermissionProbeResult(
+                            status: .failed,
+                            message: "Local network probe failed: \(error.localizedDescription)"
+                        )
+                    )
+                case .waiting(let error):
+                    let status: StartupPermissionStatus
+                    if case .posix(let code) = error, code == .EPERM {
+                        status = .denied
+                    } else {
+                        status = .failed
+                    }
+                    finish(
+                        PermissionProbeResult(
+                            status: status,
+                            message: "Local network waiting: \(error.localizedDescription)"
+                        )
+                    )
+                case .cancelled:
+                    break
+                default:
+                    break
+                }
+            }
+            browser.browseResultsChangedHandler = { _, _ in
+                // A result callback indicates browse permissions are functioning.
+                finish(
+                    PermissionProbeResult(
+                        status: .granted,
+                        message: "Local network access is available."
+                    )
+                )
+            }
+            browser.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + timeoutSeconds) {
+                finish(
+                    PermissionProbeResult(
+                        status: .failed,
+                        message: "Local network permission probe timed out."
+                    )
+                )
+            }
+        }
+    }
+
+    private static func probeIncomingConnectionPermission(timeoutSeconds: TimeInterval = 3.0) async -> PermissionProbeResult {
+        await withCheckedContinuation { continuation in
+            let queue = DispatchQueue(label: "NoctyraRelay.IncomingPermission")
+            let gate = PermissionProbeGate()
+            let listener: NWListener
+            do {
+                listener = try NWListener(using: .tcp, on: .any)
+            } catch {
+                continuation.resume(
+                    returning: PermissionProbeResult(
+                        status: .failed,
+                        message: "Incoming connection probe failed to start: \(error.localizedDescription)"
+                    )
+                )
+                return
+            }
+
+            @Sendable func finish(_ result: PermissionProbeResult) {
+                guard gate.claim() else { return }
+                listener.cancel()
+                continuation.resume(returning: result)
+            }
+
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    finish(
+                        PermissionProbeResult(
+                            status: .granted,
+                            message: "Incoming listener access is available."
+                        )
+                    )
+                case .failed(let error):
+                    finish(
+                        PermissionProbeResult(
+                            status: .failed,
+                            message: "Incoming listener probe failed: \(error.localizedDescription)"
+                        )
+                    )
+                case .waiting(let error):
+                    finish(
+                        PermissionProbeResult(
+                            status: .denied,
+                            message: "Incoming listener waiting: \(error.localizedDescription)"
+                        )
+                    )
+                case .cancelled:
+                    break
+                default:
+                    break
+                }
+            }
+            listener.newConnectionHandler = { connection in
+                connection.cancel()
+            }
+            listener.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + timeoutSeconds) {
+                finish(
+                    PermissionProbeResult(
+                        status: .failed,
+                        message: "Incoming listener permission probe timed out."
+                    )
+                )
+            }
         }
     }
 }
