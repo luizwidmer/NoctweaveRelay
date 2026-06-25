@@ -270,6 +270,7 @@ final class ServerViewModel: ObservableObject {
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
     @Published var groupCreationMode: GroupCreationMode = .allowed
+    @Published var groupSecurityModel: GroupSecurityModel = .relayBackedPairwise
     @Published var storageMode: RelayStorageMode = .disk
     @Published var storePath: String = ""
     @Published var relayPassword: String = ""
@@ -521,6 +522,7 @@ final class ServerViewModel: ObservableObject {
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
             groupCreationMode: groupCreationMode,
+            groupSecurityModel: groupSecurityModel,
             accessPassword: password.isEmpty ? nil : password,
             coordinatorRegistrationToken: registrationToken.isEmpty ? nil : registrationToken,
             federationForwardingAuthToken: forwardingToken.isEmpty ? nil : forwardingToken,
@@ -904,6 +906,7 @@ final class ServerViewModel: ObservableObject {
         var relayName: String
         var operatorNote: String
         var groupCreationMode: GroupCreationMode
+        var groupSecurityModel: GroupSecurityModel?
         var storageMode: RelayStorageMode
         var storePath: String
         // Optional only for migration from older settings files. New files never
@@ -948,6 +951,7 @@ final class ServerViewModel: ObservableObject {
             $relayName.map { _ in () }.eraseToAnyPublisher(),
             $operatorNote.map { _ in () }.eraseToAnyPublisher(),
             $groupCreationMode.map { _ in () }.eraseToAnyPublisher(),
+            $groupSecurityModel.map { _ in () }.eraseToAnyPublisher(),
             $storageMode.map { _ in () }.eraseToAnyPublisher(),
             $storePath.map { _ in () }.eraseToAnyPublisher(),
             $relayPassword.map { _ in () }.eraseToAnyPublisher(),
@@ -1002,6 +1006,7 @@ final class ServerViewModel: ObservableObject {
             relayName: relayName,
             operatorNote: operatorNote,
             groupCreationMode: groupCreationMode,
+            groupSecurityModel: groupSecurityModel,
             storageMode: storageMode,
             storePath: storePath,
             relayPassword: nil,
@@ -1081,6 +1086,7 @@ final class ServerViewModel: ObservableObject {
             relayName = persisted.relayName
             operatorNote = persisted.operatorNote
             groupCreationMode = persisted.groupCreationMode
+            groupSecurityModel = persisted.groupSecurityModel ?? .relayBackedPairwise
             storageMode = persisted.storageMode
             storePath = persisted.storePath
             let legacyRelayPassword = persisted.relayPassword ?? ""

@@ -226,6 +226,22 @@ struct ContentView: View {
                         Text("Controls whether this relay accepts group registry creation requests.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        HStack {
+                            Text("Group Security Model")
+                            Spacer()
+                            Picker("Group Security Model", selection: $model.groupSecurityModel) {
+                                ForEach(GroupSecurityModel.allCases, id: \.self) { model in
+                                    Text(model.rawValue).tag(model)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 220)
+                        }
+                        Text(model.groupSecurityModel == .mlsDerivedTree
+                             ? "Advertises the MLS-derived target model. Enable only with compatible group clients."
+                             : "Current deployed group model: relay-backed membership with end-to-end encrypted pairwise delivery.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         Divider().opacity(0.2)
                         TextField("Relay Name (optional)", text: $model.relayName)
                             .relayFieldStyle()
