@@ -212,6 +212,55 @@ struct ContentView: View {
                              : "Hidden retrieval is not advertised. Clients use normal authenticated fetch.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        Toggle("Advertise decentralized wake policy", isOn: $model.wakeModeEnabled)
+                        if model.wakeModeEnabled {
+                            HStack {
+                                Text("Wake Mode")
+                                Spacer()
+                                Picker("Wake Mode", selection: $model.wakeMode) {
+                                    ForEach(DecentralizedWakeMode.allCases, id: \.self) { mode in
+                                        Text(mode.rawValue).tag(mode)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: 180)
+                            }
+                            HStack {
+                                Text("Min Poll")
+                                Spacer()
+                                TextField("60", text: $model.wakeMinPollSeconds)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            HStack {
+                                Text("Max Poll")
+                                Spacer()
+                                TextField("300", text: $model.wakeMaxPollSeconds)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            HStack {
+                                Text("Jitter Permille")
+                                Spacer()
+                                TextField("250", text: $model.wakeJitterPermille)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            if model.wakeMode == .longPoll {
+                                HStack {
+                                    Text("Long-Poll Timeout")
+                                    Spacer()
+                                    TextField("60", text: $model.wakeLongPollTimeoutSeconds)
+                                        .relayFieldStyle()
+                                        .frame(width: 92)
+                                }
+                            }
+                        }
+                        Text(model.wakeModeEnabled
+                             ? "Clients can schedule jittered pull or long-poll fetches without a centralized push server."
+                             : "No wake policy is advertised. Clients fall back to local polling defaults.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         HStack {
                             Text("Group Creation")
                             Spacer()

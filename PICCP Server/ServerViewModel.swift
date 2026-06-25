@@ -267,6 +267,12 @@ final class ServerViewModel: ObservableObject {
     @Published var hiddenRetrievalEnabled: Bool = false
     @Published var hiddenRetrievalCoverSize: String = "8"
     @Published var hiddenRetrievalMaxCoverSize: String = "32"
+    @Published var wakeModeEnabled: Bool = false
+    @Published var wakeMode: DecentralizedWakeMode = .pullOnly
+    @Published var wakeMinPollSeconds: String = "60"
+    @Published var wakeMaxPollSeconds: String = "300"
+    @Published var wakeJitterPermille: String = "250"
+    @Published var wakeLongPollTimeoutSeconds: String = "60"
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
     @Published var groupCreationMode: GroupCreationMode = .allowed
@@ -496,6 +502,15 @@ final class ServerViewModel: ObservableObject {
                 maxCoverSetSize: max(1, Int(hiddenRetrievalMaxCoverSize) ?? 32)
             )
             : nil
+        let wakeSupport = wakeModeEnabled
+            ? DecentralizedWakeSupport(
+                mode: wakeMode,
+                minPollIntervalSeconds: max(5, Int(wakeMinPollSeconds) ?? 60),
+                maxPollIntervalSeconds: max(5, Int(wakeMaxPollSeconds) ?? 300),
+                jitterPermille: min(max(0, Int(wakeJitterPermille) ?? 250), 1_000),
+                longPollTimeoutSeconds: wakeMode == .longPoll ? max(5, Int(wakeLongPollTimeoutSeconds) ?? 60) : nil
+            )
+            : nil
         let allowList = parseAllowList(federationAllowList)
         let coordinators = parseCoordinatorEndpoints(
             endpointsValue: federationCoordinatorList,
@@ -518,6 +533,7 @@ final class ServerViewModel: ObservableObject {
             attachmentMaxTTLSeconds: maxAttachmentTTLSeconds,
             attachmentsEnabled: attachmentsEnabled,
             hiddenRetrieval: hiddenRetrieval,
+            wakeSupport: wakeSupport,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
@@ -903,6 +919,12 @@ final class ServerViewModel: ObservableObject {
         var hiddenRetrievalEnabled: Bool?
         var hiddenRetrievalCoverSize: String?
         var hiddenRetrievalMaxCoverSize: String?
+        var wakeModeEnabled: Bool?
+        var wakeMode: DecentralizedWakeMode?
+        var wakeMinPollSeconds: String?
+        var wakeMaxPollSeconds: String?
+        var wakeJitterPermille: String?
+        var wakeLongPollTimeoutSeconds: String?
         var relayName: String
         var operatorNote: String
         var groupCreationMode: GroupCreationMode
@@ -948,6 +970,12 @@ final class ServerViewModel: ObservableObject {
             $hiddenRetrievalEnabled.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalCoverSize.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalMaxCoverSize.map { _ in () }.eraseToAnyPublisher(),
+            $wakeModeEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $wakeMode.map { _ in () }.eraseToAnyPublisher(),
+            $wakeMinPollSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $wakeMaxPollSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $wakeJitterPermille.map { _ in () }.eraseToAnyPublisher(),
+            $wakeLongPollTimeoutSeconds.map { _ in () }.eraseToAnyPublisher(),
             $relayName.map { _ in () }.eraseToAnyPublisher(),
             $operatorNote.map { _ in () }.eraseToAnyPublisher(),
             $groupCreationMode.map { _ in () }.eraseToAnyPublisher(),
@@ -1003,6 +1031,12 @@ final class ServerViewModel: ObservableObject {
             hiddenRetrievalEnabled: hiddenRetrievalEnabled,
             hiddenRetrievalCoverSize: hiddenRetrievalCoverSize,
             hiddenRetrievalMaxCoverSize: hiddenRetrievalMaxCoverSize,
+            wakeModeEnabled: wakeModeEnabled,
+            wakeMode: wakeMode,
+            wakeMinPollSeconds: wakeMinPollSeconds,
+            wakeMaxPollSeconds: wakeMaxPollSeconds,
+            wakeJitterPermille: wakeJitterPermille,
+            wakeLongPollTimeoutSeconds: wakeLongPollTimeoutSeconds,
             relayName: relayName,
             operatorNote: operatorNote,
             groupCreationMode: groupCreationMode,
@@ -1083,6 +1117,12 @@ final class ServerViewModel: ObservableObject {
             hiddenRetrievalEnabled = persisted.hiddenRetrievalEnabled ?? false
             hiddenRetrievalCoverSize = persisted.hiddenRetrievalCoverSize ?? "8"
             hiddenRetrievalMaxCoverSize = persisted.hiddenRetrievalMaxCoverSize ?? "32"
+            wakeModeEnabled = persisted.wakeModeEnabled ?? false
+            wakeMode = persisted.wakeMode ?? .pullOnly
+            wakeMinPollSeconds = persisted.wakeMinPollSeconds ?? "60"
+            wakeMaxPollSeconds = persisted.wakeMaxPollSeconds ?? "300"
+            wakeJitterPermille = persisted.wakeJitterPermille ?? "250"
+            wakeLongPollTimeoutSeconds = persisted.wakeLongPollTimeoutSeconds ?? "60"
             relayName = persisted.relayName
             operatorNote = persisted.operatorNote
             groupCreationMode = persisted.groupCreationMode
