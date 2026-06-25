@@ -190,6 +190,28 @@ struct ContentView: View {
                              : "Text-only mode rejects attachment upload and download routes.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        Toggle("Advertise hidden retrieval cover queries", isOn: $model.hiddenRetrievalEnabled)
+                        if model.hiddenRetrievalEnabled {
+                            HStack {
+                                Text("Default Cover Set")
+                                Spacer()
+                                TextField("8", text: $model.hiddenRetrievalCoverSize)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            HStack {
+                                Text("Max Cover Set")
+                                Spacer()
+                                TextField("32", text: $model.hiddenRetrievalMaxCoverSize)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                        }
+                        Text(model.hiddenRetrievalEnabled
+                             ? "Clients may request fixed-size cover sets from temporal buckets. This is a metadata-reduction feature, not full PIR."
+                             : "Hidden retrieval is not advertised. Clients use normal authenticated fetch.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         HStack {
                             Text("Group Creation")
                             Spacer()

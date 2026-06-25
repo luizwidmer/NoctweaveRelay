@@ -264,6 +264,9 @@ final class ServerViewModel: ObservableObject {
     @Published var attachmentDefaultTTLMinutes: String = "60"
     @Published var attachmentMaxTTLMinutes: String = "360"
     @Published var attachmentsEnabled: Bool = true
+    @Published var hiddenRetrievalEnabled: Bool = false
+    @Published var hiddenRetrievalCoverSize: String = "8"
+    @Published var hiddenRetrievalMaxCoverSize: String = "32"
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
     @Published var groupCreationMode: GroupCreationMode = .allowed
@@ -486,6 +489,12 @@ final class ServerViewModel: ObservableObject {
         }
         let defaultAttachmentTTLSeconds = max(1, Int(attachmentDefaultTTLMinutes) ?? 60) * 60
         let maxAttachmentTTLSeconds = max(1, Int(attachmentMaxTTLMinutes) ?? 360) * 60
+        let hiddenRetrieval = hiddenRetrievalEnabled
+            ? HiddenRetrievalSupport(
+                defaultCoverSetSize: max(1, Int(hiddenRetrievalCoverSize) ?? 8),
+                maxCoverSetSize: max(1, Int(hiddenRetrievalMaxCoverSize) ?? 32)
+            )
+            : nil
         let allowList = parseAllowList(federationAllowList)
         let coordinators = parseCoordinatorEndpoints(
             endpointsValue: federationCoordinatorList,
@@ -507,6 +516,7 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLSeconds: defaultAttachmentTTLSeconds,
             attachmentMaxTTLSeconds: maxAttachmentTTLSeconds,
             attachmentsEnabled: attachmentsEnabled,
+            hiddenRetrieval: hiddenRetrieval,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
@@ -888,6 +898,9 @@ final class ServerViewModel: ObservableObject {
         var attachmentDefaultTTLMinutes: String
         var attachmentMaxTTLMinutes: String
         var attachmentsEnabled: Bool?
+        var hiddenRetrievalEnabled: Bool?
+        var hiddenRetrievalCoverSize: String?
+        var hiddenRetrievalMaxCoverSize: String?
         var relayName: String
         var operatorNote: String
         var groupCreationMode: GroupCreationMode
@@ -929,6 +942,9 @@ final class ServerViewModel: ObservableObject {
             $attachmentDefaultTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentMaxTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $hiddenRetrievalEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $hiddenRetrievalCoverSize.map { _ in () }.eraseToAnyPublisher(),
+            $hiddenRetrievalMaxCoverSize.map { _ in () }.eraseToAnyPublisher(),
             $relayName.map { _ in () }.eraseToAnyPublisher(),
             $operatorNote.map { _ in () }.eraseToAnyPublisher(),
             $groupCreationMode.map { _ in () }.eraseToAnyPublisher(),
@@ -980,6 +996,9 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes: attachmentDefaultTTLMinutes,
             attachmentMaxTTLMinutes: attachmentMaxTTLMinutes,
             attachmentsEnabled: attachmentsEnabled,
+            hiddenRetrievalEnabled: hiddenRetrievalEnabled,
+            hiddenRetrievalCoverSize: hiddenRetrievalCoverSize,
+            hiddenRetrievalMaxCoverSize: hiddenRetrievalMaxCoverSize,
             relayName: relayName,
             operatorNote: operatorNote,
             groupCreationMode: groupCreationMode,
@@ -1056,6 +1075,9 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes = persisted.attachmentDefaultTTLMinutes
             attachmentMaxTTLMinutes = persisted.attachmentMaxTTLMinutes
             attachmentsEnabled = persisted.attachmentsEnabled ?? true
+            hiddenRetrievalEnabled = persisted.hiddenRetrievalEnabled ?? false
+            hiddenRetrievalCoverSize = persisted.hiddenRetrievalCoverSize ?? "8"
+            hiddenRetrievalMaxCoverSize = persisted.hiddenRetrievalMaxCoverSize ?? "32"
             relayName = persisted.relayName
             operatorNote = persisted.operatorNote
             groupCreationMode = persisted.groupCreationMode
