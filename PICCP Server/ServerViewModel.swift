@@ -931,16 +931,9 @@ final class ServerViewModel: ObservableObject {
         var groupSecurityModel: GroupSecurityModel?
         var storageMode: RelayStorageMode
         var storePath: String
-        // Optional only for migration from older settings files. New files never
-        // persist secrets; they live in the local Keychain.
-        var relayPassword: String?
-        var relayPasswordConfirmation: String?
-        var coordinatorRegistrationToken: String?
-        var federationForwardingAuthToken: String?
         var communicationMode: RelayCommunicationMode
         var transportSecurityMode: RelayTransportSecurityMode
         var tlsIdentityPKCS12Path: String
-        var tlsIdentityPassword: String?
     }
 
     private func bindSettingsPersistence() {
@@ -1043,14 +1036,9 @@ final class ServerViewModel: ObservableObject {
             groupSecurityModel: groupSecurityModel,
             storageMode: storageMode,
             storePath: storePath,
-            relayPassword: nil,
-            relayPasswordConfirmation: nil,
-            coordinatorRegistrationToken: nil,
-            federationForwardingAuthToken: nil,
             communicationMode: communicationMode,
             transportSecurityMode: transportSecurityMode,
-            tlsIdentityPKCS12Path: tlsIdentityPKCS12Path,
-            tlsIdentityPassword: nil
+            tlsIdentityPKCS12Path: tlsIdentityPKCS12Path
         )
     }
 
@@ -1129,28 +1117,15 @@ final class ServerViewModel: ObservableObject {
             groupSecurityModel = persisted.groupSecurityModel ?? .relayBackedPairwise
             storageMode = persisted.storageMode
             storePath = persisted.storePath
-            let legacyRelayPassword = persisted.relayPassword ?? ""
-            relayPassword = (try? RelaySecretStore.load(account: .relayPassword)) ?? legacyRelayPassword
+            relayPassword = (try? RelaySecretStore.load(account: .relayPassword)) ?? ""
             relayPasswordConfirmation = relayPassword
-            coordinatorRegistrationToken =
-                (try? RelaySecretStore.load(account: .coordinatorRegistrationToken))
-                ?? persisted.coordinatorRegistrationToken
-                ?? ""
-            federationForwardingAuthToken =
-                (try? RelaySecretStore.load(account: .federationForwardingAuthToken))
-                ?? persisted.federationForwardingAuthToken
-                ?? ""
+            coordinatorRegistrationToken = (try? RelaySecretStore.load(account: .coordinatorRegistrationToken)) ?? ""
+            federationForwardingAuthToken = (try? RelaySecretStore.load(account: .federationForwardingAuthToken)) ?? ""
             communicationMode = persisted.communicationMode
             transportSecurityMode = persisted.transportSecurityMode
             tlsIdentityPKCS12Path = persisted.tlsIdentityPKCS12Path
-            tlsIdentityPassword =
-                (try? RelaySecretStore.load(account: .tlsIdentityPassword))
-                ?? persisted.tlsIdentityPassword
-                ?? ""
+            tlsIdentityPassword = (try? RelaySecretStore.load(account: .tlsIdentityPassword)) ?? ""
             isApplyingPersistedSettings = false
-            // Re-save immediately to migrate any legacy plaintext secrets out
-            // of relay_settings.json.
-            persistSettings()
         } catch {
             isApplyingPersistedSettings = false
             logs.append("Failed to load persisted settings: \(error.localizedDescription)")
