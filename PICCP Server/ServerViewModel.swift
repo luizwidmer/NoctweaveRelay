@@ -271,6 +271,11 @@ final class ServerViewModel: ObservableObject {
     @Published var onionTransportEnabled: Bool = false
     @Published var onionTransportMaxHops: String = "3"
     @Published var onionTransportRequiresFixedSizePackets: Bool = true
+    @Published var mixnetTransportEnabled: Bool = false
+    @Published var mixnetBatchIntervalSeconds: String = "30"
+    @Published var mixnetMinBatchSize: String = "8"
+    @Published var mixnetCoverPacketsPerBatch: String = "2"
+    @Published var mixnetMaxDelaySeconds: String = "120"
     @Published var wakeModeEnabled: Bool = false
     @Published var wakeMode: DecentralizedWakeMode = .pullOnly
     @Published var wakeMinPollSeconds: String = "60"
@@ -514,6 +519,15 @@ final class ServerViewModel: ObservableObject {
                 requiresFixedSizePackets: onionTransportRequiresFixedSizePackets
             )
             : nil
+        let mixnetTransport = mixnetTransportEnabled
+            ? MixnetTransportSupport(
+                enabled: true,
+                batchIntervalSeconds: Int(mixnetBatchIntervalSeconds) ?? 30,
+                minBatchSize: Int(mixnetMinBatchSize) ?? 8,
+                coverPacketsPerBatch: Int(mixnetCoverPacketsPerBatch) ?? 2,
+                maxDelaySeconds: Int(mixnetMaxDelaySeconds) ?? 120
+            )
+            : nil
         let wakeSupport = wakeModeEnabled
             ? DecentralizedWakeSupport(
                 mode: wakeMode,
@@ -546,6 +560,7 @@ final class ServerViewModel: ObservableObject {
             attachmentsEnabled: attachmentsEnabled,
             hiddenRetrieval: hiddenRetrieval,
             onionTransport: onionTransport,
+            mixnetTransport: mixnetTransport,
             wakeSupport: wakeSupport,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
@@ -936,6 +951,11 @@ final class ServerViewModel: ObservableObject {
         var onionTransportEnabled: Bool?
         var onionTransportMaxHops: String?
         var onionTransportRequiresFixedSizePackets: Bool?
+        var mixnetTransportEnabled: Bool?
+        var mixnetBatchIntervalSeconds: String?
+        var mixnetMinBatchSize: String?
+        var mixnetCoverPacketsPerBatch: String?
+        var mixnetMaxDelaySeconds: String?
         var wakeModeEnabled: Bool?
         var wakeMode: DecentralizedWakeMode?
         var wakeMinPollSeconds: String?
@@ -984,6 +1004,11 @@ final class ServerViewModel: ObservableObject {
             $onionTransportEnabled.map { _ in () }.eraseToAnyPublisher(),
             $onionTransportMaxHops.map { _ in () }.eraseToAnyPublisher(),
             $onionTransportRequiresFixedSizePackets.map { _ in () }.eraseToAnyPublisher(),
+            $mixnetTransportEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $mixnetBatchIntervalSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $mixnetMinBatchSize.map { _ in () }.eraseToAnyPublisher(),
+            $mixnetCoverPacketsPerBatch.map { _ in () }.eraseToAnyPublisher(),
+            $mixnetMaxDelaySeconds.map { _ in () }.eraseToAnyPublisher(),
             $wakeModeEnabled.map { _ in () }.eraseToAnyPublisher(),
             $wakeMode.map { _ in () }.eraseToAnyPublisher(),
             $wakeMinPollSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -1049,6 +1074,11 @@ final class ServerViewModel: ObservableObject {
             onionTransportEnabled: onionTransportEnabled,
             onionTransportMaxHops: onionTransportMaxHops,
             onionTransportRequiresFixedSizePackets: onionTransportRequiresFixedSizePackets,
+            mixnetTransportEnabled: mixnetTransportEnabled,
+            mixnetBatchIntervalSeconds: mixnetBatchIntervalSeconds,
+            mixnetMinBatchSize: mixnetMinBatchSize,
+            mixnetCoverPacketsPerBatch: mixnetCoverPacketsPerBatch,
+            mixnetMaxDelaySeconds: mixnetMaxDelaySeconds,
             wakeModeEnabled: wakeModeEnabled,
             wakeMode: wakeMode,
             wakeMinPollSeconds: wakeMinPollSeconds,
@@ -1134,6 +1164,11 @@ final class ServerViewModel: ObservableObject {
             onionTransportEnabled = persisted.onionTransportEnabled ?? false
             onionTransportMaxHops = persisted.onionTransportMaxHops ?? "3"
             onionTransportRequiresFixedSizePackets = persisted.onionTransportRequiresFixedSizePackets ?? true
+            mixnetTransportEnabled = persisted.mixnetTransportEnabled ?? false
+            mixnetBatchIntervalSeconds = persisted.mixnetBatchIntervalSeconds ?? "30"
+            mixnetMinBatchSize = persisted.mixnetMinBatchSize ?? "8"
+            mixnetCoverPacketsPerBatch = persisted.mixnetCoverPacketsPerBatch ?? "2"
+            mixnetMaxDelaySeconds = persisted.mixnetMaxDelaySeconds ?? "120"
             wakeModeEnabled = persisted.wakeModeEnabled ?? false
             wakeMode = persisted.wakeMode ?? .pullOnly
             wakeMinPollSeconds = persisted.wakeMinPollSeconds ?? "60"

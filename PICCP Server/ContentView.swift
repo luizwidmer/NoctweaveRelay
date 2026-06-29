@@ -233,6 +233,42 @@ struct ContentView: View {
                              : "Onion transport is not advertised.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        Toggle("Advertise mixnet scheduling", isOn: $model.mixnetTransportEnabled)
+                        if model.mixnetTransportEnabled {
+                            HStack {
+                                Text("Batch Interval (seconds)")
+                                Spacer()
+                                TextField("30", text: $model.mixnetBatchIntervalSeconds)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            HStack {
+                                Text("Min Batch Size")
+                                Spacer()
+                                TextField("8", text: $model.mixnetMinBatchSize)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            HStack {
+                                Text("Cover Packets")
+                                Spacer()
+                                TextField("2", text: $model.mixnetCoverPacketsPerBatch)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            HStack {
+                                Text("Max Delay (seconds)")
+                                Spacer()
+                                TextField("120", text: $model.mixnetMaxDelaySeconds)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                        }
+                        Text(model.mixnetTransportEnabled
+                             ? "Advertises deterministic batching, bounded release delay, and cover-packet scheduling for compatible clients. This still requires compatible multi-relay paths to behave like a network mixnet."
+                             : "Mixnet scheduling is not advertised.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         Toggle("Advertise decentralized wake policy", isOn: $model.wakeModeEnabled)
                         if model.wakeModeEnabled {
                             HStack {
