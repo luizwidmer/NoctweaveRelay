@@ -217,6 +217,22 @@ struct ContentView: View {
                              : "Hidden retrieval is not advertised. Clients use normal authenticated fetch.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        Toggle("Advertise onion transport", isOn: $model.onionTransportEnabled)
+                        if model.onionTransportEnabled {
+                            HStack {
+                                Text("Max Hops")
+                                Spacer()
+                                TextField("3", text: $model.onionTransportMaxHops)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            Toggle("Require fixed-size packets", isOn: $model.onionTransportRequiresFixedSizePackets)
+                        }
+                        Text(model.onionTransportEnabled
+                             ? "Advertises support for PQ onion packet construction. This is a hop-by-hop privacy primitive, not a full mixnet scheduler."
+                             : "Onion transport is not advertised.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         Toggle("Advertise decentralized wake policy", isOn: $model.wakeModeEnabled)
                         if model.wakeModeEnabled {
                             HStack {

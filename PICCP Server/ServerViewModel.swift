@@ -268,6 +268,9 @@ final class ServerViewModel: ObservableObject {
     @Published var hiddenRetrievalMode: HiddenRetrievalMode = .coverQuery
     @Published var hiddenRetrievalCoverSize: String = "8"
     @Published var hiddenRetrievalMaxCoverSize: String = "32"
+    @Published var onionTransportEnabled: Bool = false
+    @Published var onionTransportMaxHops: String = "3"
+    @Published var onionTransportRequiresFixedSizePackets: Bool = true
     @Published var wakeModeEnabled: Bool = false
     @Published var wakeMode: DecentralizedWakeMode = .pullOnly
     @Published var wakeMinPollSeconds: String = "60"
@@ -504,6 +507,13 @@ final class ServerViewModel: ObservableObject {
                 maxCoverSetSize: max(1, Int(hiddenRetrievalMaxCoverSize) ?? 32)
             )
             : nil
+        let onionTransport = onionTransportEnabled
+            ? OnionTransportSupport(
+                enabled: true,
+                maxHops: Int(onionTransportMaxHops) ?? 3,
+                requiresFixedSizePackets: onionTransportRequiresFixedSizePackets
+            )
+            : nil
         let wakeSupport = wakeModeEnabled
             ? DecentralizedWakeSupport(
                 mode: wakeMode,
@@ -535,6 +545,7 @@ final class ServerViewModel: ObservableObject {
             attachmentMaxTTLSeconds: maxAttachmentTTLSeconds,
             attachmentsEnabled: attachmentsEnabled,
             hiddenRetrieval: hiddenRetrieval,
+            onionTransport: onionTransport,
             wakeSupport: wakeSupport,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
@@ -922,6 +933,9 @@ final class ServerViewModel: ObservableObject {
         var hiddenRetrievalMode: HiddenRetrievalMode?
         var hiddenRetrievalCoverSize: String?
         var hiddenRetrievalMaxCoverSize: String?
+        var onionTransportEnabled: Bool?
+        var onionTransportMaxHops: String?
+        var onionTransportRequiresFixedSizePackets: Bool?
         var wakeModeEnabled: Bool?
         var wakeMode: DecentralizedWakeMode?
         var wakeMinPollSeconds: String?
@@ -967,6 +981,9 @@ final class ServerViewModel: ObservableObject {
             $hiddenRetrievalMode.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalCoverSize.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalMaxCoverSize.map { _ in () }.eraseToAnyPublisher(),
+            $onionTransportEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $onionTransportMaxHops.map { _ in () }.eraseToAnyPublisher(),
+            $onionTransportRequiresFixedSizePackets.map { _ in () }.eraseToAnyPublisher(),
             $wakeModeEnabled.map { _ in () }.eraseToAnyPublisher(),
             $wakeMode.map { _ in () }.eraseToAnyPublisher(),
             $wakeMinPollSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -1029,6 +1046,9 @@ final class ServerViewModel: ObservableObject {
             hiddenRetrievalMode: hiddenRetrievalMode,
             hiddenRetrievalCoverSize: hiddenRetrievalCoverSize,
             hiddenRetrievalMaxCoverSize: hiddenRetrievalMaxCoverSize,
+            onionTransportEnabled: onionTransportEnabled,
+            onionTransportMaxHops: onionTransportMaxHops,
+            onionTransportRequiresFixedSizePackets: onionTransportRequiresFixedSizePackets,
             wakeModeEnabled: wakeModeEnabled,
             wakeMode: wakeMode,
             wakeMinPollSeconds: wakeMinPollSeconds,
@@ -1111,6 +1131,9 @@ final class ServerViewModel: ObservableObject {
             hiddenRetrievalMode = persisted.hiddenRetrievalMode ?? .coverQuery
             hiddenRetrievalCoverSize = persisted.hiddenRetrievalCoverSize ?? "8"
             hiddenRetrievalMaxCoverSize = persisted.hiddenRetrievalMaxCoverSize ?? "32"
+            onionTransportEnabled = persisted.onionTransportEnabled ?? false
+            onionTransportMaxHops = persisted.onionTransportMaxHops ?? "3"
+            onionTransportRequiresFixedSizePackets = persisted.onionTransportRequiresFixedSizePackets ?? true
             wakeModeEnabled = persisted.wakeModeEnabled ?? false
             wakeMode = persisted.wakeMode ?? .pullOnly
             wakeMinPollSeconds = persisted.wakeMinPollSeconds ?? "60"
