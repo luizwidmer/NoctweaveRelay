@@ -265,6 +265,7 @@ final class ServerViewModel: ObservableObject {
     @Published var attachmentMaxTTLMinutes: String = "360"
     @Published var attachmentsEnabled: Bool = true
     @Published var hiddenRetrievalEnabled: Bool = false
+    @Published var hiddenRetrievalMode: HiddenRetrievalMode = .coverQuery
     @Published var hiddenRetrievalCoverSize: String = "8"
     @Published var hiddenRetrievalMaxCoverSize: String = "32"
     @Published var wakeModeEnabled: Bool = false
@@ -498,6 +499,7 @@ final class ServerViewModel: ObservableObject {
         let maxAttachmentTTLSeconds = max(1, Int(attachmentMaxTTLMinutes) ?? 360) * 60
         let hiddenRetrieval = hiddenRetrievalEnabled
             ? HiddenRetrievalSupport(
+                mode: hiddenRetrievalMode,
                 defaultCoverSetSize: max(1, Int(hiddenRetrievalCoverSize) ?? 8),
                 maxCoverSetSize: max(1, Int(hiddenRetrievalMaxCoverSize) ?? 32)
             )
@@ -917,6 +919,7 @@ final class ServerViewModel: ObservableObject {
         var attachmentMaxTTLMinutes: String
         var attachmentsEnabled: Bool?
         var hiddenRetrievalEnabled: Bool?
+        var hiddenRetrievalMode: HiddenRetrievalMode?
         var hiddenRetrievalCoverSize: String?
         var hiddenRetrievalMaxCoverSize: String?
         var wakeModeEnabled: Bool?
@@ -961,6 +964,7 @@ final class ServerViewModel: ObservableObject {
             $attachmentMaxTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentsEnabled.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $hiddenRetrievalMode.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalCoverSize.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalMaxCoverSize.map { _ in () }.eraseToAnyPublisher(),
             $wakeModeEnabled.map { _ in () }.eraseToAnyPublisher(),
@@ -1022,6 +1026,7 @@ final class ServerViewModel: ObservableObject {
             attachmentMaxTTLMinutes: attachmentMaxTTLMinutes,
             attachmentsEnabled: attachmentsEnabled,
             hiddenRetrievalEnabled: hiddenRetrievalEnabled,
+            hiddenRetrievalMode: hiddenRetrievalMode,
             hiddenRetrievalCoverSize: hiddenRetrievalCoverSize,
             hiddenRetrievalMaxCoverSize: hiddenRetrievalMaxCoverSize,
             wakeModeEnabled: wakeModeEnabled,
@@ -1103,6 +1108,7 @@ final class ServerViewModel: ObservableObject {
             attachmentMaxTTLMinutes = persisted.attachmentMaxTTLMinutes
             attachmentsEnabled = persisted.attachmentsEnabled ?? true
             hiddenRetrievalEnabled = persisted.hiddenRetrievalEnabled ?? false
+            hiddenRetrievalMode = persisted.hiddenRetrievalMode ?? .coverQuery
             hiddenRetrievalCoverSize = persisted.hiddenRetrievalCoverSize ?? "8"
             hiddenRetrievalMaxCoverSize = persisted.hiddenRetrievalMaxCoverSize ?? "32"
             wakeModeEnabled = persisted.wakeModeEnabled ?? false

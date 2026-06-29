@@ -190,8 +190,13 @@ struct ContentView: View {
                              : "Text-only mode rejects attachment upload and download routes.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        Toggle("Advertise hidden retrieval cover queries", isOn: $model.hiddenRetrievalEnabled)
+                        Toggle("Advertise hidden retrieval", isOn: $model.hiddenRetrievalEnabled)
                         if model.hiddenRetrievalEnabled {
+                            Picker("Mode", selection: $model.hiddenRetrievalMode) {
+                                Text("Cover Query").tag(HiddenRetrievalMode.coverQuery)
+                                Text("Replicated XOR-PIR").tag(HiddenRetrievalMode.replicatedXorPIR)
+                            }
+                            .pickerStyle(.segmented)
                             HStack {
                                 Text("Default Cover Set")
                                 Spacer()
@@ -208,7 +213,7 @@ struct ContentView: View {
                             }
                         }
                         Text(model.hiddenRetrievalEnabled
-                             ? "Clients may request fixed-size cover sets from temporal buckets. This is a metadata-reduction feature, not full PIR."
+                             ? "Cover-query mode requests fixed-size decoy sets. Replicated XOR-PIR mode is for non-colluding replicated buckets and hides the target from any single replica."
                              : "Hidden retrieval is not advertised. Clients use normal authenticated fetch.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
