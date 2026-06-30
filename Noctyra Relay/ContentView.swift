@@ -371,32 +371,41 @@ struct ContentView: View {
                             subtitle: model.federationMode == .manual ? "Operator-managed standard relay node list" : "Managed from remote JSON over HTTPS",
                             icon: "point.3.connected.trianglepath.dotted"
                         ) {
-                            TextField("https://example.org/federation.json", text: $model.federationSourceURL)
-                                .relayFieldStyle()
-                            HStack(spacing: 8) {
-                                Button("Fetch Federation") {
-                                    model.fetchFederationSource()
+                            if model.federationMode == .manual {
+                                Text("Add each federated standard relay explicitly. Manual mode does not use coordinators, DHT, peer exchange, or automatic discovery.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                manualFederationNodeEditor
+                            } else {
+                                TextField("https://example.org/federation.json", text: $model.federationSourceURL)
+                                    .relayFieldStyle()
+                                HStack(spacing: 8) {
+                                    Button("Fetch Federation") {
+                                        model.fetchFederationSource()
+                                    }
+                                    .relayButton(prominent: true)
+                                    if let status = model.federationSourceStatus, !status.isEmpty {
+                                        Text(status)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if let updated = model.federationSourceLastUpdated {
+                                        Text("Updated \(formatUpdated(updated))")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
-                                .relayButton(prominent: true)
-                                if let status = model.federationSourceStatus, !status.isEmpty {
-                                    Text(status)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if let updated = model.federationSourceLastUpdated {
-                                    Text("Updated \(formatUpdated(updated))")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
+                                Text("JSON may include mode, name, description, and allowlist entries (host:port or https URL).")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
-                            Text("JSON may include mode, name, description, and allowlist entries (host:port or https URL).")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
 
                             Divider().opacity(0.2)
-                            TextField("Federated nodes (comma-separated host:port, tls://, http://, or https://)", text: $model.federationAllowList)
-                                .relayFieldStyle()
+                            if model.federationMode != .manual {
+                                TextField("Federated nodes (comma-separated host:port, tls://, http://, or https://)", text: $model.federationAllowList)
+                                    .relayFieldStyle()
+                            }
                             SecureField("Inter-relay forwarding token (optional)", text: $model.federationForwardingAuthToken)
                                 .relayFieldStyle()
                             Text("Used only for relay-to-relay forwarding authentication. Client passwords are never forwarded upstream.")
@@ -1013,6 +1022,87 @@ struct ContentView: View {
             }
             .relayButton()
             .fixedSize()
+        }
+    }
+
+    private var manualFederationNodeEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                TextField("relay.example.org:9339 or https://relay.example.org", text: $model.manualFederationEndpointDraft)
+                    .relayFieldStyle()
+                    .onSubmit {
+                        model.addManualFederationNode()
+                    }
+                Button {
+                    model.addManualFederationNode()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 28, height: 28)
+                }
+                .relayButton(prominent: true)
+                .disabled(!model.canAddManualFederationNode)
+                .help("Add federated relay")
+            }
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Federated Relay")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(model.manualFederationNodes.count)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.white.opacity(0.045))
+
+                if model.manualFederationNodes.isEmpty {
+                    Text("No federated relays added.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 12)
+                } else {
+                    ForEach(Array(model.manualFederationNodes.enumerated()), id: \.offset) { index, endpoint in
+                        HStack(spacing: 10) {
+                            Text(endpoint)
+                                .font(.callout.monospaced())
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                            Spacer()
+                            Button {
+                                model.removeManualFederationNode(at: index)
+                            } label: {
+                                Image(systemName: "minus")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .frame(width: 24, height: 24)
+                            }
+                            .relayButton()
+                            .help("Remove federated relay")
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        if index < model.manualFederationNodes.count - 1 {
+                            Divider().opacity(0.18)
+                        }
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.8)
+            )
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.black.opacity(0.18))
+            )
         }
     }
 

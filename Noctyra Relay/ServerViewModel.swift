@@ -438,6 +438,7 @@ final class ServerViewModel: ObservableObject {
     @Published var federationName: String = ""
     @Published var federationDescription: String = ""
     @Published var federationAllowList: String = ""
+    @Published var manualFederationEndpointDraft: String = ""
     @Published var federationCoordinatorList: String = ""
     @Published var federationCoordinatorPublicKeys: String = ""
     @Published var coordinatorHeartbeatSeconds: String = "45"
@@ -941,6 +942,38 @@ final class ServerViewModel: ObservableObject {
         }
     }
 
+    var manualFederationNodes: [String] {
+        splitFederationEndpointList(federationAllowList)
+    }
+
+    var canAddManualFederationNode: Bool {
+        !manualFederationEndpointDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func addManualFederationNode() {
+        let trimmed = manualFederationEndpointDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard parseEndpoint(trimmed) != nil else {
+            lastError = "Enter a valid relay endpoint, for example relay.example.org:9339, tls://relay.example.org:9339, or https://relay.example.org."
+            return
+        }
+        var nodes = manualFederationNodes
+        guard !nodes.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else {
+            manualFederationEndpointDraft = ""
+            return
+        }
+        nodes.append(trimmed)
+        federationAllowList = nodes.joined(separator: ", ")
+        manualFederationEndpointDraft = ""
+    }
+
+    func removeManualFederationNode(at index: Int) {
+        var nodes = manualFederationNodes
+        guard nodes.indices.contains(index) else { return }
+        nodes.remove(at: index)
+        federationAllowList = nodes.joined(separator: ", ")
+    }
+
     private func validatedStoreURL() throws -> URL? {
         guard storageMode == .disk else {
             return nil
@@ -1087,9 +1120,15 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func parseAllowList(_ value: String) -> [RelayEndpoint] {
+        splitFederationEndpointList(value)
+            .compactMap { parseEndpoint(String($0)) }
+    }
+
+    private func splitFederationEndpointList(_ value: String) -> [String] {
         value
             .split(whereSeparator: { $0 == "," || $0 == "\n" || $0 == ";" })
-            .compactMap { parseEndpoint(String($0)) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private func parseCoordinatorEndpoints(
