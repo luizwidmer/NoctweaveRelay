@@ -965,6 +965,7 @@ final class ServerViewModel: ObservableObject {
         nodes.append(trimmed)
         federationAllowList = nodes.joined(separator: ", ")
         manualFederationEndpointDraft = ""
+        applyLiveManualFederationAllowList()
     }
 
     func removeManualFederationNode(at index: Int) {
@@ -972,6 +973,17 @@ final class ServerViewModel: ObservableObject {
         guard nodes.indices.contains(index) else { return }
         nodes.remove(at: index)
         federationAllowList = nodes.joined(separator: ", ")
+        applyLiveManualFederationAllowList()
+    }
+
+    private func applyLiveManualFederationAllowList() {
+        guard isRunning, federationMode == .manual else { return }
+        let endpoints = parseAllowList(federationAllowList)
+        server.updateFederationAllowList(endpoints)
+        logs.append("Updated live manual federation list (\(endpoints.count) relay\(endpoints.count == 1 ? "" : "s")).")
+        if logs.count > 200 {
+            logs.removeFirst(logs.count - 200)
+        }
     }
 
     private func validatedStoreURL() throws -> URL? {
