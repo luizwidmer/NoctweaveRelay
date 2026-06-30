@@ -10,6 +10,12 @@ import AppKit
 import UniformTypeIdentifiers
 #endif
 
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+}
+
 enum RelayStorageMode: String, CaseIterable, Identifiable, Codable {
     case disk
     case memory
@@ -322,6 +328,44 @@ enum StartupPermissionStatus: String {
     }
 }
 
+enum FederatedRelayHealthStatus: Equatable {
+    case idle
+    case checking
+    case healthy(latencyMs: Int, checkedAt: Date)
+    case failed(message: String, checkedAt: Date)
+
+    var title: String {
+        switch self {
+        case .idle:
+            return "Not checked"
+        case .checking:
+            return "Checking..."
+        case .healthy(let latencyMs, _):
+            return "Healthy \(latencyMs) ms"
+        case .failed:
+            return "Unreachable"
+        }
+    }
+
+    var detail: String? {
+        switch self {
+        case .idle, .checking:
+            return nil
+        case .healthy(_, let checkedAt):
+            return "Checked \(Self.timeFormatter.string(from: checkedAt))"
+        case .failed(let message, let checkedAt):
+            return "\(message) · \(Self.timeFormatter.string(from: checkedAt))"
+        }
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+}
+
 private final class PermissionProbeGate: @unchecked Sendable {
     private let lock = NSLock()
     nonisolated(unsafe) private var resolved = false
@@ -507,6 +551,7 @@ final class ServerViewModel: ObservableObject {
     @Published var permissionProbeMessage: String?
     @Published var permissionProbeRunning = false
     @Published var permissionProbeHasRun = false
+    @Published var manualFederationHealth: [String: FederatedRelayHealthStatus] = [:]
 
     private let defaultStoreURL: URL
     private let settingsURL: URL
@@ -685,16 +730,20 @@ final class ServerViewModel: ObservableObject {
     private func handle(event: RelayServer.Event) {
         switch event {
         case .started(let port):
-            logs.append("Server started on \(host):\(port)")
+            appendLog("Server started on \(host):\(port)")
         case .stopped:
-            logs.append("Server stopped")
+            appendLog("Server stopped")
         case .delivered(_, let storedCount):
-            logs.append("Accepted encrypted delivery (\(storedCount) queued)")
+            appendLog("Accepted encrypted delivery (\(storedCount) queued)")
         case .fetched(_, let count):
-            logs.append("Returned \(count) encrypted envelope(s)")
+            appendLog("Returned \(count) encrypted envelope(s)")
         case .error(let message):
-            logs.append("Error: \(message)")
+            appendLog("Error: \(message)")
         }
+    }
+
+    private func appendLog(_ message: String) {
+        logs.append(message)
         if logs.count > 200 {
             logs.removeFirst(logs.count - 200)
         }
@@ -835,7 +884,7 @@ final class ServerViewModel: ObservableObject {
                 account: .coordinatorDirectorySigningKey
             )
         } catch {
-            logs.append("Failed to persist coordinator signing key: \(error.localizedDescription)")
+            appendLog("Failed to persist coordinator signing key: \(error.localizedDescription)")
         }
         return generated
     }
@@ -971,19 +1020,50 @@ final class ServerViewModel: ObservableObject {
     func removeManualFederationNode(at index: Int) {
         var nodes = manualFederationNodes
         guard nodes.indices.contains(index) else { return }
+        manualFederationHealth[nodes[index]] = nil
         nodes.remove(at: index)
         federationAllowList = nodes.joined(separator: ", ")
         applyLiveManualFederationAllowList()
+    }
+
+    func checkManualFederationNodeHealth(_ endpointValue: String) {
+        let trimmed = endpointValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let endpoint = parseEndpoint(trimmed) else {
+            manualFederationHealth[trimmed] = .failed(message: "Invalid endpoint", checkedAt: Date())
+            return
+        }
+        manualFederationHealth[trimmed] = .checking
+        Task {
+            let started = Date()
+            do {
+                let response = try await RelayClient(
+                    endpoint: endpoint,
+                    authToken: federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                )
+                .send(.health(), timeout: 5)
+                let latencyMs = max(0, Int(Date().timeIntervalSince(started) * 1_000))
+                guard response.type == .ok else {
+                    let message = response.error ?? "Unexpected response: \(response.type.rawValue)"
+                    manualFederationHealth[trimmed] = .failed(message: message, checkedAt: Date())
+                    appendLog("Federation health failed for \(trimmed): \(message)")
+                    return
+                }
+                manualFederationHealth[trimmed] = .healthy(latencyMs: latencyMs, checkedAt: Date())
+                appendLog("Federation health OK for \(trimmed) (\(latencyMs) ms).")
+            } catch {
+                let message = error.localizedDescription
+                manualFederationHealth[trimmed] = .failed(message: message, checkedAt: Date())
+                appendLog("Federation health failed for \(trimmed): \(message)")
+            }
+        }
     }
 
     private func applyLiveManualFederationAllowList() {
         guard isRunning, federationMode == .manual else { return }
         let endpoints = parseAllowList(federationAllowList)
         server.updateFederationAllowList(endpoints)
-        logs.append("Updated live manual federation list (\(endpoints.count) relay\(endpoints.count == 1 ? "" : "s")).")
-        if logs.count > 200 {
-            logs.removeFirst(logs.count - 200)
-        }
+        appendLog("Updated live manual federation list (\(endpoints.count) relay\(endpoints.count == 1 ? "" : "s")).")
     }
 
     private func validatedStoreURL() throws -> URL? {

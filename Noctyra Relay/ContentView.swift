@@ -1068,14 +1068,28 @@ struct ContentView: View {
                         .padding(.vertical, 12)
                 } else {
                     ForEach(Array(model.manualFederationNodes.enumerated()), id: \.offset) { index, endpoint in
+                        let healthStatus = model.manualFederationHealth[endpoint] ?? .idle
                         HStack(spacing: 10) {
-                            Text(endpoint)
-                                .font(.callout.monospaced())
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .textSelection(.enabled)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(endpoint)
+                                    .font(.callout.monospaced())
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                                manualFederationHealthView(healthStatus)
+                            }
                             Spacer()
+                            Button {
+                                model.checkManualFederationNodeHealth(endpoint)
+                            } label: {
+                                Image(systemName: "waveform.path.ecg")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .frame(width: 24, height: 24)
+                            }
+                            .relayButton()
+                            .disabled(healthStatus == .checking)
+                            .help("Check federation health")
                             Button {
                                 model.removeManualFederationNode(at: index)
                             } label: {
@@ -1103,6 +1117,44 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.black.opacity(0.18))
             )
+        }
+    }
+
+    @ViewBuilder
+    private func manualFederationHealthView(_ status: FederatedRelayHealthStatus) -> some View {
+        let display = manualFederationHealthDisplay(status)
+        HStack(spacing: 6) {
+            Image(systemName: display.icon)
+                .font(.system(size: 10, weight: .semibold))
+            Text(display.title)
+                .font(.caption2.weight(.semibold))
+            if let detail = display.detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .foregroundStyle(display.color)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            Capsule(style: .continuous)
+                .fill(display.color.opacity(0.12))
+        )
+    }
+
+    private func manualFederationHealthDisplay(_ status: FederatedRelayHealthStatus) -> (title: String, detail: String?, icon: String, color: Color) {
+        switch status {
+        case .idle:
+            return (status.title, status.detail, "circle.dashed", .secondary)
+        case .checking:
+            return (status.title, status.detail, "arrow.triangle.2.circlepath", .cyan)
+        case .healthy:
+            return (status.title, status.detail, "checkmark.circle.fill", .green)
+        case .failed:
+            return (status.title, status.detail, "exclamationmark.triangle.fill", .orange)
         }
     }
 
