@@ -27,6 +27,12 @@ Important: kind is descriptive metadata. Forwarding rules are enforced by federa
 - `solo`
   - No relay-to-relay forwarding.
   - Any request with a destination relay is rejected.
+- `manual`
+  - Forwarding requires the destination endpoint in the operator-managed node list.
+  - Destination relay must report `manual` mode.
+  - Destination relay must report relay kind `standard`.
+  - If federation name is set, destination name must match.
+  - No coordinator, DHT, quorum, or peer exchange is used.
 - `curated`
   - Strict policy is enabled by default.
   - Forwarding requires:
@@ -41,16 +47,16 @@ Important: kind is descriptive metadata. Forwarding rules are enforced by federa
   - If federation name is set, destination name must match.
   - Open mode cannot use an allowlist.
 
-Note: `open` is available in the relay app UI and via federation source files.
+Note: `manual`, `curated`, and `open` are available in the relay app UI and via federation source files.
 
 ## 4. Federation Setup from HTTPS JSON
 In `Relay Configuration`, set a federation mode other than `solo`, then use `Federation Source (HTTPS)` and click `Fetch Federation`.
 
 Supported JSON fields:
-- `mode`: `solo`, `curated`, or `open`
+- `mode`: `solo`, `manual`, `curated`, or `open`
 - `name`: federation name
 - `description`: federation description
-- `allowlist`: list of relay endpoints
+- `allowlist`: list of relay endpoints. In manual mode this is the complete node list; in curated mode it is the static allowlist.
 - `coordinators`: list of coordinator endpoints (`host:port`, `https://host:port`, or `wss://host:port`)
 - `coordinatorHeartbeatSeconds`: relay heartbeat interval to coordinators
 - `curatedStrictPolicyEnabled`: optional bool (`true`/`false`)

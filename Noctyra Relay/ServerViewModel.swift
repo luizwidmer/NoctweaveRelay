@@ -1,6 +1,6 @@
 import Combine
 import Foundation
-import PICCPCore
+import NoctweaveCore
 import Network
 #if canImport(Security)
 import Security
@@ -15,6 +15,180 @@ enum RelayStorageMode: String, CaseIterable, Identifiable, Codable {
     case memory
 
     var id: String { rawValue }
+}
+
+enum RelayAttachmentStorageBackend: String, CaseIterable, Identifiable, Codable {
+    case inline
+    case ipfs
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .inline:
+            return "Inline"
+        case .ipfs:
+            return "IPFS"
+        }
+    }
+
+    var advertisedName: String? {
+        switch self {
+        case .inline:
+            return nil
+        case .ipfs:
+            return rawValue
+        }
+    }
+}
+
+private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
+    let backendName = "ipfs"
+
+    private let apiEndpoint: URL
+    private let gatewayEndpoint: URL
+    private let timeoutSeconds: TimeInterval
+
+    init(apiEndpoint: URL, gatewayEndpoint: URL? = nil, timeoutSeconds: TimeInterval = 10) {
+        self.apiEndpoint = apiEndpoint
+        self.gatewayEndpoint = gatewayEndpoint ?? apiEndpoint
+        self.timeoutSeconds = max(1, timeoutSeconds)
+    }
+
+    func put(_ data: Data, attachmentId: UUID, chunkIndex: Int, expiresAt: Date) throws -> AttachmentExternalRecord {
+        let boundary = "noctyra-\(UUID().uuidString)"
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(attachmentId.uuidString)-\(chunkIndex).bin\"\r\n".utf8))
+        body.append(Data("Content-Type: application/octet-stream\r\n\r\n".utf8))
+        body.append(data)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+
+        var request = URLRequest(url: apiURL(path: "/api/v0/add", queryItems: [
+            URLQueryItem(name: "pin", value: "true"),
+            URLQueryItem(name: "cid-version", value: "1"),
+            URLQueryItem(name: "raw-leaves", value: "true"),
+            URLQueryItem(name: "quiet", value: "true")
+        ]))
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeoutSeconds
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let responseData = try send(request)
+        guard let cid = decodeCID(from: responseData), !cid.isEmpty else {
+            throw AttachmentBlobStoreError.uploadFailed("IPFS add response did not contain a CID")
+        }
+        return AttachmentExternalRecord(
+            backend: backendName,
+            locator: cid,
+            byteCount: data.count,
+            sha256Hex: AttachmentBlobDigest.sha256Hex(data),
+            expiresAt: expiresAt
+        )
+    }
+
+    func get(_ record: AttachmentExternalRecord) throws -> Data {
+        let data = try fetch(locator: record.locator)
+        guard data.count == record.byteCount,
+              AttachmentBlobDigest.sha256Hex(data) == record.sha256Hex else {
+            throw AttachmentBlobStoreError.digestMismatch
+        }
+        return data
+    }
+
+    func delete(_ record: AttachmentExternalRecord) {
+        var request = URLRequest(url: apiURL(path: "/api/v0/pin/rm", queryItems: [
+            URLQueryItem(name: "arg", value: record.locator)
+        ]))
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeoutSeconds
+        _ = try? send(request)
+    }
+
+    private func fetch(locator: String) throws -> Data {
+        var catRequest = URLRequest(url: apiURL(path: "/api/v0/cat", queryItems: [
+            URLQueryItem(name: "arg", value: locator)
+        ]))
+        catRequest.httpMethod = "POST"
+        catRequest.timeoutInterval = timeoutSeconds
+        if let data = try? send(catRequest) {
+            return data
+        }
+
+        var gatewayURL = gatewayEndpoint
+        gatewayURL.appendPathComponent("ipfs")
+        gatewayURL.appendPathComponent(locator)
+        var gatewayRequest = URLRequest(url: gatewayURL)
+        gatewayRequest.timeoutInterval = timeoutSeconds
+        return try send(gatewayRequest)
+    }
+
+    private func apiURL(path: String, queryItems: [URLQueryItem]) -> URL {
+        var components = URLComponents(url: apiEndpoint, resolvingAgainstBaseURL: false)
+        components?.path = path
+        components?.queryItems = queryItems
+        return components?.url ?? apiEndpoint
+    }
+
+    private func send(_ request: URLRequest) throws -> Data {
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var result: Result<Data, Error>?
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+            let nextResult: Result<Data, Error>
+            if let error {
+                nextResult = .failure(error)
+            } else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+                if (200..<300).contains(status) {
+                    nextResult = .success(data ?? Data())
+                } else {
+                    nextResult = .failure(AttachmentBlobStoreError.fetchFailed("HTTP \(status)"))
+                }
+            }
+            lock.lock()
+            result = nextResult
+            lock.unlock()
+        }.resume()
+
+        let timeout = DispatchTime.now() + timeoutSeconds + 1
+        guard semaphore.wait(timeout: timeout) == .success else {
+            throw AttachmentBlobStoreError.fetchFailed("Request timed out")
+        }
+        lock.lock()
+        let finalResult = result
+        lock.unlock()
+        switch finalResult {
+        case .success(let data):
+            return data
+        case .failure(let error):
+            throw error
+        case .none:
+            throw AttachmentBlobStoreError.fetchFailed("No response")
+        }
+    }
+
+    private func decodeCID(from data: Data) -> String? {
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let hash = object["Hash"] as? String {
+            return hash
+        }
+        let lines = String(decoding: data, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+        for line in lines.reversed() {
+            if let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+               let hash = object["Hash"] as? String {
+                return hash
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
 }
 
 enum RelayTransportSecurityMode: String, CaseIterable, Identifiable, Codable {
@@ -104,6 +278,23 @@ private enum RelayStorePathValidationError: LocalizedError {
             return "Store directory is not writable: \(path)"
         case .storeFileNotWritable(let path):
             return "Store file is not writable: \(path)"
+        }
+    }
+}
+
+private enum RelayAttachmentStorageValidationError: LocalizedError {
+    case invalidIPFSAPIEndpoint
+    case invalidIPFSGatewayEndpoint
+    case invalidIPFSTimeout
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidIPFSAPIEndpoint:
+            return "IPFS attachment storage requires a valid HTTP or HTTPS API endpoint."
+        case .invalidIPFSGatewayEndpoint:
+            return "IPFS gateway endpoint must be a valid HTTP or HTTPS URL."
+        case .invalidIPFSTimeout:
+            return "IPFS timeout must be at least 1 second."
         }
     }
 }
@@ -250,6 +441,7 @@ final class ServerViewModel: ObservableObject {
     @Published var federationCoordinatorList: String = ""
     @Published var federationCoordinatorPublicKeys: String = ""
     @Published var coordinatorHeartbeatSeconds: String = "45"
+    @Published var coordinatorDirectoryMaxStalenessSeconds: String = "300"
     @Published var curatedStrictPolicyEnabled: Bool = true
     @Published var curatedCoordinatorQuorum: String = "1"
     @Published var curatedRequireSignedDirectory: Bool = true
@@ -269,6 +461,10 @@ final class ServerViewModel: ObservableObject {
     @Published var attachmentDefaultTTLMinutes: String = "60"
     @Published var attachmentMaxTTLMinutes: String = "360"
     @Published var attachmentsEnabled: Bool = true
+    @Published var attachmentStorageBackend: RelayAttachmentStorageBackend = .inline
+    @Published var ipfsAPIEndpoint: String = "http://127.0.0.1:5001"
+    @Published var ipfsGatewayEndpoint: String = ""
+    @Published var ipfsTimeoutSeconds: String = "10"
     @Published var hiddenRetrievalEnabled: Bool = false
     @Published var hiddenRetrievalMode: HiddenRetrievalMode = .coverQuery
     @Published var hiddenRetrievalCoverSize: String = "8"
@@ -293,6 +489,7 @@ final class ServerViewModel: ObservableObject {
     @Published var groupSecurityModel: GroupSecurityModel = .relayBackedPairwise
     @Published var storageMode: RelayStorageMode = .disk
     @Published var storePath: String = ""
+    @Published var maxInboxMessages: String = "1000"
     @Published var relayPassword: String = ""
     @Published var relayPasswordConfirmation: String = ""
     @Published var coordinatorRegistrationToken: String = ""
@@ -329,7 +526,7 @@ final class ServerViewModel: ObservableObject {
 
     init() {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PICCPServer", isDirectory: true)
+            .appendingPathComponent("NoctyraRelay", isDirectory: true)
         let storeURL = directory.appendingPathComponent("relay_store.sqlite")
         self.defaultStoreURL = storeURL
         self.settingsURL = directory.appendingPathComponent("relay_settings.json")
@@ -339,7 +536,9 @@ final class ServerViewModel: ObservableObject {
         self.store = RelayStore(
             storeURL: storeURL,
             temporalBucketSeconds: bootstrapConfiguration.temporalBucketSeconds,
-            temporalBucketScheduleSeconds: bootstrapConfiguration.temporalBucketScheduleSeconds
+            temporalBucketScheduleSeconds: bootstrapConfiguration.temporalBucketScheduleSeconds,
+            attachmentBlobStore: nil,
+            maxInboxMessages: 1_000
         )
         self.server = RelayServer(store: store, configuration: bootstrapConfiguration)
         server.onEvent = { [weak self] event in
@@ -408,10 +607,29 @@ final class ServerViewModel: ObservableObject {
             return
         }
         let configuration = buildConfiguration()
+        if federationMode == .manual {
+            guard relayKind == .standard else {
+                lastError = "Manual federation uses standard relays only. Set Relay Kind to Standard."
+                return
+            }
+            guard !configuration.federationAllowList.isEmpty else {
+                lastError = "Manual federation requires at least one node in the federated node list."
+                return
+            }
+        }
+        let attachmentBlobStore: AttachmentBlobStore?
+        do {
+            attachmentBlobStore = try makeAttachmentBlobStore()
+        } catch {
+            lastError = error.localizedDescription
+            return
+        }
         store = RelayStore(
             storeURL: resolvedStoreURL,
             temporalBucketSeconds: configuration.temporalBucketSeconds,
-            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds
+            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds,
+            attachmentBlobStore: attachmentBlobStore,
+            maxInboxMessages: parsedMaxInboxMessages
         )
         server = RelayServer(store: store, configuration: configuration)
         server.onEvent = { [weak self] event in
@@ -548,6 +766,7 @@ final class ServerViewModel: ObservableObject {
             publicKeysValue: federationCoordinatorPublicKeys
         )
         let heartbeatSeconds = max(15, Int(coordinatorHeartbeatSeconds) ?? 45)
+        let directoryMaxStalenessSeconds = max(30, Int(coordinatorDirectoryMaxStalenessSeconds) ?? 300)
         let curatedQuorum = max(1, Int(curatedCoordinatorQuorum) ?? 1)
         let advertisedRelayEndpoint = parseEndpoint(advertisedEndpoint)
         let federation = FederationDescriptor(
@@ -563,6 +782,7 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLSeconds: defaultAttachmentTTLSeconds,
             attachmentMaxTTLSeconds: maxAttachmentTTLSeconds,
             attachmentsEnabled: attachmentsEnabled,
+            attachmentStorageBackend: attachmentsEnabled ? attachmentStorageBackend.advertisedName : nil,
             hiddenRetrieval: hiddenRetrieval,
             onionTransport: onionTransport,
             mixnetTransport: mixnetTransport,
@@ -582,6 +802,7 @@ final class ServerViewModel: ObservableObject {
             tlsIdentityPassword: transportSecurityMode.usesRelayTLS && !tlsPassword.isEmpty ? tlsPassword : nil,
             federationCoordinatorEndpoints: coordinators.isEmpty ? nil : coordinators,
             coordinatorHeartbeatSeconds: heartbeatSeconds,
+            coordinatorDirectoryMaxStalenessSeconds: directoryMaxStalenessSeconds,
             relayPeerExchangeLimit: max(0, Int(relayPeerExchangeLimit) ?? 12),
             openFederationDHTEnabled: openFederationDHTEnabled,
             openFederationDHTMaxRecords: max(1, Int(openFederationDHTMaxRecords) ?? 256),
@@ -632,6 +853,45 @@ final class ServerViewModel: ObservableObject {
         }
     }
 
+    private func makeAttachmentBlobStore() throws -> AttachmentBlobStore? {
+        guard attachmentsEnabled, attachmentStorageBackend == .ipfs else {
+            return nil
+        }
+        guard let apiEndpoint = validatedHTTPURL(ipfsAPIEndpoint) else {
+            throw RelayAttachmentStorageValidationError.invalidIPFSAPIEndpoint
+        }
+        let gatewayEndpoint: URL?
+        let trimmedGateway = ipfsGatewayEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedGateway.isEmpty {
+            gatewayEndpoint = nil
+        } else {
+            guard let endpoint = validatedHTTPURL(trimmedGateway) else {
+                throw RelayAttachmentStorageValidationError.invalidIPFSGatewayEndpoint
+            }
+            gatewayEndpoint = endpoint
+        }
+        guard let timeoutSeconds = TimeInterval(ipfsTimeoutSeconds.trimmingCharacters(in: .whitespacesAndNewlines)),
+              timeoutSeconds >= 1 else {
+            throw RelayAttachmentStorageValidationError.invalidIPFSTimeout
+        }
+        return RelayIPFSAttachmentBlobStore(
+            apiEndpoint: apiEndpoint,
+            gatewayEndpoint: gatewayEndpoint,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    private func validatedHTTPURL(_ value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false else {
+            return nil
+        }
+        return url
+    }
+
     private func normalizedSQLiteURL(_ url: URL) -> URL {
         let ext = url.pathExtension.lowercased()
         if ext == "sqlite" || ext == "db" {
@@ -663,6 +923,22 @@ final class ServerViewModel: ObservableObject {
         let volumeName = (try? url.resourceValues(forKeys: [.volumeLocalizedNameKey]))?.volumeLocalizedName
             ?? "Unknown Volume"
         return "Volume: \(volumeName) | File: \(url.path)"
+    }
+
+    private var parsedMaxInboxMessages: Int {
+        max(1, Int(maxInboxMessages.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 1_000)
+    }
+
+    var attachmentStorageDescription: String {
+        guard attachmentsEnabled else {
+            return "Attachments are disabled; blob storage is unused."
+        }
+        switch attachmentStorageBackend {
+        case .inline:
+            return "Encrypted attachment chunks stay inside the relay state store."
+        case .ipfs:
+            return "Encrypted chunks are pinned through the IPFS API; the relay stores only verified metadata and TTL records."
+        }
     }
 
     private func validatedStoreURL() throws -> URL? {
@@ -729,6 +1005,7 @@ final class ServerViewModel: ObservableObject {
         var coordinatorEntries: [CoordinatorEntry]?
         var coordinatorPublicKeys: [String]?
         var coordinatorHeartbeatSeconds: Int?
+        var coordinatorDirectoryMaxStalenessSeconds: Int?
         var curatedStrictPolicyEnabled: Bool?
         var curatedCoordinatorQuorum: Int?
         var curatedRequireSignedDirectory: Bool?
@@ -785,6 +1062,9 @@ final class ServerViewModel: ObservableObject {
             }
             if let heartbeatSeconds = document.coordinatorHeartbeatSeconds, heartbeatSeconds > 0 {
                 coordinatorHeartbeatSeconds = String(max(15, heartbeatSeconds))
+            }
+            if let maxStalenessSeconds = document.coordinatorDirectoryMaxStalenessSeconds, maxStalenessSeconds > 0 {
+                coordinatorDirectoryMaxStalenessSeconds = String(max(30, maxStalenessSeconds))
             }
             if let strict = document.curatedStrictPolicyEnabled {
                 curatedStrictPolicyEnabled = strict
@@ -921,7 +1201,8 @@ final class ServerViewModel: ObservableObject {
         store = RelayStore(
             storeURL: resolvedStoreURL(),
             temporalBucketSeconds: configuration.temporalBucketSeconds,
-            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds
+            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds,
+            maxInboxMessages: parsedMaxInboxMessages
         )
         server = RelayServer(store: store, configuration: configuration)
         server.onEvent = { [weak self] event in
@@ -942,6 +1223,7 @@ final class ServerViewModel: ObservableObject {
         var federationCoordinatorList: String
         var federationCoordinatorPublicKeys: String?
         var coordinatorHeartbeatSeconds: String
+        var coordinatorDirectoryMaxStalenessSeconds: String?
         var curatedStrictPolicyEnabled: Bool
         var curatedCoordinatorQuorum: String
         var curatedRequireSignedDirectory: Bool
@@ -959,6 +1241,10 @@ final class ServerViewModel: ObservableObject {
         var attachmentDefaultTTLMinutes: String
         var attachmentMaxTTLMinutes: String
         var attachmentsEnabled: Bool?
+        var attachmentStorageBackend: RelayAttachmentStorageBackend?
+        var ipfsAPIEndpoint: String?
+        var ipfsGatewayEndpoint: String?
+        var ipfsTimeoutSeconds: String?
         var hiddenRetrievalEnabled: Bool?
         var hiddenRetrievalMode: HiddenRetrievalMode?
         var hiddenRetrievalCoverSize: String?
@@ -983,6 +1269,7 @@ final class ServerViewModel: ObservableObject {
         var groupSecurityModel: GroupSecurityModel?
         var storageMode: RelayStorageMode
         var storePath: String
+        var maxInboxMessages: String?
         var communicationMode: RelayCommunicationMode
         var transportSecurityMode: RelayTransportSecurityMode
         var tlsIdentityPKCS12Path: String
@@ -1000,6 +1287,7 @@ final class ServerViewModel: ObservableObject {
             $federationCoordinatorList.map { _ in () }.eraseToAnyPublisher(),
             $federationCoordinatorPublicKeys.map { _ in () }.eraseToAnyPublisher(),
             $coordinatorHeartbeatSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $coordinatorDirectoryMaxStalenessSeconds.map { _ in () }.eraseToAnyPublisher(),
             $curatedStrictPolicyEnabled.map { _ in () }.eraseToAnyPublisher(),
             $curatedCoordinatorQuorum.map { _ in () }.eraseToAnyPublisher(),
             $curatedRequireSignedDirectory.map { _ in () }.eraseToAnyPublisher(),
@@ -1017,6 +1305,10 @@ final class ServerViewModel: ObservableObject {
             $attachmentDefaultTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentMaxTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $attachmentStorageBackend.map { _ in () }.eraseToAnyPublisher(),
+            $ipfsAPIEndpoint.map { _ in () }.eraseToAnyPublisher(),
+            $ipfsGatewayEndpoint.map { _ in () }.eraseToAnyPublisher(),
+            $ipfsTimeoutSeconds.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalEnabled.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalMode.map { _ in () }.eraseToAnyPublisher(),
             $hiddenRetrievalCoverSize.map { _ in () }.eraseToAnyPublisher(),
@@ -1041,6 +1333,7 @@ final class ServerViewModel: ObservableObject {
             $groupSecurityModel.map { _ in () }.eraseToAnyPublisher(),
             $storageMode.map { _ in () }.eraseToAnyPublisher(),
             $storePath.map { _ in () }.eraseToAnyPublisher(),
+            $maxInboxMessages.map { _ in () }.eraseToAnyPublisher(),
             $relayPassword.map { _ in () }.eraseToAnyPublisher(),
             $relayPasswordConfirmation.map { _ in () }.eraseToAnyPublisher(),
             $coordinatorRegistrationToken.map { _ in () }.eraseToAnyPublisher(),
@@ -1075,6 +1368,7 @@ final class ServerViewModel: ObservableObject {
             federationCoordinatorList: federationCoordinatorList,
             federationCoordinatorPublicKeys: federationCoordinatorPublicKeys,
             coordinatorHeartbeatSeconds: coordinatorHeartbeatSeconds,
+            coordinatorDirectoryMaxStalenessSeconds: coordinatorDirectoryMaxStalenessSeconds,
             curatedStrictPolicyEnabled: curatedStrictPolicyEnabled,
             curatedCoordinatorQuorum: curatedCoordinatorQuorum,
             curatedRequireSignedDirectory: curatedRequireSignedDirectory,
@@ -1092,6 +1386,10 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes: attachmentDefaultTTLMinutes,
             attachmentMaxTTLMinutes: attachmentMaxTTLMinutes,
             attachmentsEnabled: attachmentsEnabled,
+            attachmentStorageBackend: attachmentStorageBackend,
+            ipfsAPIEndpoint: ipfsAPIEndpoint,
+            ipfsGatewayEndpoint: ipfsGatewayEndpoint,
+            ipfsTimeoutSeconds: ipfsTimeoutSeconds,
             hiddenRetrievalEnabled: hiddenRetrievalEnabled,
             hiddenRetrievalMode: hiddenRetrievalMode,
             hiddenRetrievalCoverSize: hiddenRetrievalCoverSize,
@@ -1116,6 +1414,7 @@ final class ServerViewModel: ObservableObject {
             groupSecurityModel: groupSecurityModel,
             storageMode: storageMode,
             storePath: storePath,
+            maxInboxMessages: maxInboxMessages,
             communicationMode: communicationMode,
             transportSecurityMode: transportSecurityMode,
             tlsIdentityPKCS12Path: tlsIdentityPKCS12Path
@@ -1166,6 +1465,7 @@ final class ServerViewModel: ObservableObject {
             federationCoordinatorList = persisted.federationCoordinatorList
             federationCoordinatorPublicKeys = persisted.federationCoordinatorPublicKeys ?? ""
             coordinatorHeartbeatSeconds = persisted.coordinatorHeartbeatSeconds
+            coordinatorDirectoryMaxStalenessSeconds = persisted.coordinatorDirectoryMaxStalenessSeconds ?? "300"
             curatedStrictPolicyEnabled = persisted.curatedStrictPolicyEnabled
             curatedCoordinatorQuorum = persisted.curatedCoordinatorQuorum
             curatedRequireSignedDirectory = persisted.curatedRequireSignedDirectory
@@ -1187,6 +1487,10 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes = persisted.attachmentDefaultTTLMinutes
             attachmentMaxTTLMinutes = persisted.attachmentMaxTTLMinutes
             attachmentsEnabled = persisted.attachmentsEnabled ?? true
+            attachmentStorageBackend = persisted.attachmentStorageBackend ?? .inline
+            ipfsAPIEndpoint = persisted.ipfsAPIEndpoint ?? "http://127.0.0.1:5001"
+            ipfsGatewayEndpoint = persisted.ipfsGatewayEndpoint ?? ""
+            ipfsTimeoutSeconds = persisted.ipfsTimeoutSeconds ?? "10"
             hiddenRetrievalEnabled = persisted.hiddenRetrievalEnabled ?? false
             hiddenRetrievalMode = persisted.hiddenRetrievalMode ?? .coverQuery
             hiddenRetrievalCoverSize = persisted.hiddenRetrievalCoverSize ?? "8"
@@ -1211,6 +1515,7 @@ final class ServerViewModel: ObservableObject {
             groupSecurityModel = persisted.groupSecurityModel ?? .relayBackedPairwise
             storageMode = persisted.storageMode
             storePath = persisted.storePath
+            maxInboxMessages = persisted.maxInboxMessages ?? "1000"
             relayPassword = (try? RelaySecretStore.load(account: .relayPassword)) ?? ""
             relayPasswordConfirmation = relayPassword
             coordinatorRegistrationToken = (try? RelaySecretStore.load(account: .coordinatorRegistrationToken)) ?? ""

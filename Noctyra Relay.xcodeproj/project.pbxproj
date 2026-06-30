@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		D1E2F3A405162738495A6B7D /* PICCPCore in Frameworks */ = {isa = PBXBuildFile; productRef = E1F2A3B405162738495A6B7D /* PICCPCore */; };
+		D1E2F3A405162738495A6B7D /* NoctweaveCore in Frameworks */ = {isa = PBXBuildFile; productRef = E1F2A3B405162738495A6B7D /* NoctweaveCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -15,9 +15,9 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		251C71032F00A529007DB82C /* PICCP Server */ = {
+		251C71032F00A529007DB82C /* Noctyra Relay */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "PICCP Server";
+			path = "Noctyra Relay";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -27,7 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D1E2F3A405162738495A6B7D /* PICCPCore in Frameworks */,
+				D1E2F3A405162738495A6B7D /* NoctweaveCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -37,7 +37,7 @@
 		251C70F82F00A529007DB82C = {
 			isa = PBXGroup;
 			children = (
-				251C71032F00A529007DB82C /* PICCP Server */,
+				251C71032F00A529007DB82C /* Noctyra Relay */,
 				251C71022F00A529007DB82C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -66,11 +66,11 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				251C71032F00A529007DB82C /* PICCP Server */,
+				251C71032F00A529007DB82C /* Noctyra Relay */,
 			);
 			name = "Noctyra Relay";
 			packageProductDependencies = (
-				E1F2A3B405162738495A6B7D /* PICCPCore */,
+				E1F2A3B405162738495A6B7D /* NoctweaveCore */,
 			);
 			productName = "Noctyra Relay";
 			productReference = 251C71012F00A529007DB82C /* Noctyra Relay.app */;
@@ -91,7 +91,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "PICCP Server" */;
+			buildConfigurationList = 251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "Noctyra Relay" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -101,7 +101,7 @@
 			mainGroup = 251C70F82F00A529007DB82C;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../PICCPCore" */,
+				F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../NoctweaveCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 251C71022F00A529007DB82C /* Products */;
@@ -351,7 +351,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "PICCP Server" */ = {
+		251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "Noctyra Relay" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				251C710A2F00A529007DB82C /* Debug */,
@@ -372,17 +372,17 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../PICCPCore" */ = {
+		F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../NoctweaveCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../PICCPCore;
+			relativePath = ../NoctweaveCore;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		E1F2A3B405162738495A6B7D /* PICCPCore */ = {
+		E1F2A3B405162738495A6B7D /* NoctweaveCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../PICCPCore" */;
-			productName = PICCPCore;
+			package = F1A2B3C405162738495A6B7D /* XCLocalSwiftPackageReference "../NoctweaveCore" */;
+			productName = NoctweaveCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

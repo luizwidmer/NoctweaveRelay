@@ -1,5 +1,5 @@
 //
-//  PICCP_ServerApp.swift
+//  NoctyraRelayApp.swift
 //  Noctyra Relay
 //
 //  Created by Luiz Fernando Widmer Neto on 27/12/25.
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct PICCP_ServerApp: App {
+struct NoctyraRelayApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

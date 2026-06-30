@@ -1,5 +1,5 @@
 import SwiftUI
-import PICCPCore
+import NoctweaveCore
 import StoreKit
 import Combine
 
@@ -118,6 +118,11 @@ struct ContentView: View {
                             }
                             .labelsHidden()
                             .frame(maxWidth: 220)
+                        }
+                        if model.federationMode == .manual {
+                            Text("Manual federation accepts standard relays only. Set Relay Kind to Standard before starting.")
+                                .font(.caption2)
+                                .foregroundStyle(model.relayKind == .standard ? Color.secondary : Color.orange)
                         }
                         HStack {
                             Text("Federation Mode")
@@ -362,8 +367,8 @@ struct ContentView: View {
 
                     if model.federationMode != .solo {
                         serverCard(
-                            title: "Federation Source",
-                            subtitle: "Managed from remote JSON over HTTPS",
+                            title: model.federationMode == .manual ? "Manual Federation" : "Federation Source",
+                            subtitle: model.federationMode == .manual ? "Operator-managed standard relay node list" : "Managed from remote JSON over HTTPS",
                             icon: "point.3.connected.trianglepath.dotted"
                         ) {
                             TextField("https://example.org/federation.json", text: $model.federationSourceURL)
@@ -390,17 +395,21 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
 
                             Divider().opacity(0.2)
-                            TextField("Coordinator endpoints (comma-separated host:port or https URL)", text: $model.federationCoordinatorList)
-                                .relayFieldStyle()
-                            TextField("Coordinator signing keys (base64, aligned with endpoints)", text: $model.federationCoordinatorPublicKeys)
-                                .relayFieldStyle()
-                            SecureField("Coordinator registration token (optional shared secret)", text: $model.coordinatorRegistrationToken)
+                            TextField("Federated nodes (comma-separated host:port, tls://, http://, or https://)", text: $model.federationAllowList)
                                 .relayFieldStyle()
                             SecureField("Inter-relay forwarding token (optional)", text: $model.federationForwardingAuthToken)
                                 .relayFieldStyle()
                             Text("Used only for relay-to-relay forwarding authentication. Client passwords are never forwarded upstream.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
+                            if model.federationMode != .manual {
+                                TextField("Coordinator endpoints (comma-separated host:port or https URL)", text: $model.federationCoordinatorList)
+                                    .relayFieldStyle()
+                                TextField("Coordinator signing keys (base64, aligned with endpoints)", text: $model.federationCoordinatorPublicKeys)
+                                    .relayFieldStyle()
+                                SecureField("Coordinator registration token (optional shared secret)", text: $model.coordinatorRegistrationToken)
+                                    .relayFieldStyle()
+                            }
                             if model.federationMode == .open {
                                 Toggle(
                                     "Allow private/LAN federation endpoints",
@@ -450,12 +459,28 @@ struct ContentView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
-                            HStack {
-                                Text("Heartbeat (seconds)")
-                                Spacer()
-                                TextField("45", text: $model.coordinatorHeartbeatSeconds)
-                                    .relayFieldStyle()
-                                    .frame(width: 92)
+                            if model.federationMode != .manual {
+                                HStack {
+                                    Text("Heartbeat (seconds)")
+                                    Spacer()
+                                    TextField("45", text: $model.coordinatorHeartbeatSeconds)
+                                        .relayFieldStyle()
+                                        .frame(width: 92)
+                                }
+                                HStack {
+                                    Text("Directory Max Staleness")
+                                    Spacer()
+                                    TextField("300", text: $model.coordinatorDirectoryMaxStalenessSeconds)
+                                        .relayFieldStyle()
+                                        .frame(width: 92)
+                                }
+                                Text("Coordinator directory entries older than this are ignored by clients and relays.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Manual mode forwards only to nodes in this list after they report federation mode manual and relay kind standard.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
                             if model.federationMode == .curated {
                                 Divider().opacity(0.2)
@@ -477,9 +502,11 @@ struct ContentView: View {
                                     .font(.subheadline.weight(.semibold))
                                 federationDetailRow("Name", value: model.federationName)
                                 federationDetailRow("Description", value: model.federationDescription)
-                                federationDetailRow("Allow List", value: model.federationAllowList)
-                                federationDetailRow("Coordinators", value: model.federationCoordinatorList)
-                                federationDetailRow("Registration Auth", value: model.coordinatorRegistrationToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Disabled" : "Token required")
+                                federationDetailRow(model.federationMode == .manual ? "Manual Nodes" : "Allow List", value: model.federationAllowList)
+                                if model.federationMode != .manual {
+                                    federationDetailRow("Coordinators", value: model.federationCoordinatorList)
+                                    federationDetailRow("Registration Auth", value: model.coordinatorRegistrationToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Disabled" : "Token required")
+                                }
                                 federationDetailRow(
                                     "Inter-relay Auth",
                                     value: model.federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Disabled" : "Token configured"
@@ -526,6 +553,66 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             Text("RAM mode is ephemeral. Queues and prekeys are lost when the relay stops.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Max Inbox Messages")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Caps queued encrypted envelopes per inbox before the relay rejects new deliveries.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            TextField("1000", text: $model.maxInboxMessages)
+                                .relayFieldStyle()
+                                .frame(width: 92)
+                        }
+                        Divider()
+                            .overlay(.white.opacity(0.08))
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Attachment Blob Storage")
+                                    .font(.subheadline.weight(.semibold))
+                                Text(model.attachmentStorageDescription)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Picker("Attachment Blob Storage", selection: $model.attachmentStorageBackend) {
+                                ForEach(RelayAttachmentStorageBackend.allCases) { backend in
+                                    Text(backend.displayName).tag(backend)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 220)
+                            .disabled(!model.attachmentsEnabled)
+                        }
+                        if model.attachmentsEnabled, model.attachmentStorageBackend == .ipfs {
+                            HStack {
+                                Text("IPFS API")
+                                Spacer()
+                                TextField("http://127.0.0.1:5001", text: $model.ipfsAPIEndpoint)
+                                    .relayFieldStyle()
+                                    .frame(width: 260)
+                            }
+                            HStack {
+                                Text("Gateway Fallback")
+                                Spacer()
+                                TextField("http://127.0.0.1:8080", text: $model.ipfsGatewayEndpoint)
+                                    .relayFieldStyle()
+                                    .frame(width: 260)
+                            }
+                            HStack {
+                                Text("IPFS Timeout (seconds)")
+                                Spacer()
+                                TextField("10", text: $model.ipfsTimeoutSeconds)
+                                    .relayFieldStyle()
+                                    .frame(width: 92)
+                            }
+                            Text("IPFS offload pins encrypted chunks through the configured API. TTL cleanup removes relay metadata and attempts to unpin, but external IPFS peers may retain blocks.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
