@@ -824,6 +824,7 @@ final class ServerViewModel: ObservableObject {
             name: trimmedName.isEmpty ? nil : trimmedName,
             description: trimmedDescription.isEmpty ? nil : trimmedDescription
         )
+        let openFederationFeaturesEnabled = federationMode == .open
         return RelayConfiguration(
             kind: relayKind,
             federation: federation,
@@ -853,8 +854,8 @@ final class ServerViewModel: ObservableObject {
             federationCoordinatorEndpoints: coordinators.isEmpty ? nil : coordinators,
             coordinatorHeartbeatSeconds: heartbeatSeconds,
             coordinatorDirectoryMaxStalenessSeconds: directoryMaxStalenessSeconds,
-            relayPeerExchangeLimit: max(0, Int(relayPeerExchangeLimit) ?? 12),
-            openFederationDHTEnabled: openFederationDHTEnabled,
+            relayPeerExchangeLimit: openFederationFeaturesEnabled ? max(0, Int(relayPeerExchangeLimit) ?? 12) : 0,
+            openFederationDHTEnabled: openFederationFeaturesEnabled ? openFederationDHTEnabled : false,
             openFederationDHTMaxRecords: max(1, Int(openFederationDHTMaxRecords) ?? 256),
             openFederationDHTMaxRecordsPerHost: max(1, Int(openFederationDHTMaxRecordsPerHost) ?? 4),
             openFederationDHTMaxQueryRecords: max(1, Int(openFederationDHTMaxQueryRecords) ?? 256),
@@ -1060,10 +1061,14 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func applyLiveManualFederationAllowList() {
-        guard isRunning, federationMode == .manual else { return }
-        let endpoints = parseAllowList(federationAllowList)
-        server.updateFederationAllowList(endpoints)
-        appendLog("Updated live manual federation list (\(endpoints.count) relay\(endpoints.count == 1 ? "" : "s")).")
+        applyLiveFederationRuntimeSettings(reason: "manual federation list")
+    }
+
+    private func applyLiveFederationRuntimeSettings(reason: String = "federation settings") {
+        guard isRunning else { return }
+        let configuration = buildConfiguration()
+        server.updateFederationRuntimeSettings(from: configuration)
+        appendLog("Updated live \(reason). Federation mode: \(configuration.federation.mode.rawValue); relays: \(configuration.federationAllowList.count); coordinators: \(configuration.federationCoordinatorEndpoints?.count ?? 0).")
     }
 
     private func validatedStoreURL() throws -> URL? {
@@ -1483,6 +1488,40 @@ final class ServerViewModel: ObservableObject {
                     return
                 }
                 self.persistSettings()
+            }
+            .store(in: &settingsCancellables)
+
+        let federationObserved: [AnyPublisher<Void, Never>] = [
+            $federationMode.map { _ in () }.eraseToAnyPublisher(),
+            $federationName.map { _ in () }.eraseToAnyPublisher(),
+            $federationDescription.map { _ in () }.eraseToAnyPublisher(),
+            $federationAllowList.map { _ in () }.eraseToAnyPublisher(),
+            $federationCoordinatorList.map { _ in () }.eraseToAnyPublisher(),
+            $federationCoordinatorPublicKeys.map { _ in () }.eraseToAnyPublisher(),
+            $coordinatorHeartbeatSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $coordinatorDirectoryMaxStalenessSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $curatedStrictPolicyEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $curatedCoordinatorQuorum.map { _ in () }.eraseToAnyPublisher(),
+            $curatedRequireSignedDirectory.map { _ in () }.eraseToAnyPublisher(),
+            $allowPrivateFederationEndpoints.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTMaxRecords.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTMaxRecordsPerHost.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTMaxQueryRecords.map { _ in () }.eraseToAnyPublisher(),
+            $relayPeerExchangeLimit.map { _ in () }.eraseToAnyPublisher(),
+            $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
+            $coordinatorRegistrationToken.map { _ in () }.eraseToAnyPublisher(),
+            $federationForwardingAuthToken.map { _ in () }.eraseToAnyPublisher()
+        ]
+
+        Publishers.MergeMany(federationObserved)
+            .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
+            .sink { [weak self] in
+                guard let self else { return }
+                if self.isApplyingPersistedSettings {
+                    return
+                }
+                self.applyLiveFederationRuntimeSettings()
             }
             .store(in: &settingsCancellables)
     }

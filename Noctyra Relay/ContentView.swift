@@ -367,15 +367,14 @@ struct ContentView: View {
 
                     if model.federationMode != .solo {
                         serverCard(
-                            title: model.federationMode == .manual ? "Manual Federation" : "Federation Source",
-                            subtitle: model.federationMode == .manual ? "Operator-managed standard relay node list" : "Managed from remote JSON over HTTPS",
+                            title: model.federationMode == .manual ? "Manual Federation" : "Federation Topology",
+                            subtitle: model.federationMode == .manual ? "Operator-managed standard relay node list" : "Runtime-managed relay peers and optional HTTPS source",
                             icon: "point.3.connected.trianglepath.dotted"
                         ) {
                             if model.federationMode == .manual {
                                 Text("Add each federated standard relay explicitly. Manual mode does not use coordinators, DHT, peer exchange, or automatic discovery.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                manualFederationNodeEditor
                             } else {
                                 TextField("https://example.org/federation.json", text: $model.federationSourceURL)
                                     .relayFieldStyle()
@@ -400,12 +399,12 @@ struct ContentView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
+                            federationNodeEditor
+                            Text("Relay peers are applied live while the relay is running. Health checks are optional diagnostics and do not gate adding or removing peers.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
 
                             Divider().opacity(0.2)
-                            if model.federationMode != .manual {
-                                TextField("Federated nodes (comma-separated host:port, tls://, http://, or https://)", text: $model.federationAllowList)
-                                    .relayFieldStyle()
-                            }
                             SecureField("Inter-relay forwarding token (optional)", text: $model.federationForwardingAuthToken)
                                 .relayFieldStyle()
                             Text("Used only for relay-to-relay forwarding authentication. Client passwords are never forwarded upstream.")
@@ -1025,7 +1024,7 @@ struct ContentView: View {
         }
     }
 
-    private var manualFederationNodeEditor: some View {
+    private var federationNodeEditor: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 TextField("relay.example.org:9339 or https://relay.example.org", text: $model.manualFederationEndpointDraft)
