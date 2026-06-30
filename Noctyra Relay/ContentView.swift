@@ -530,7 +530,6 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .disabled(model.isRunning)
                         .id(RelayPanel.federation)
                     }
 
