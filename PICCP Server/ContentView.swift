@@ -409,6 +409,46 @@ struct ContentView: View {
                                 Text("Disabled by default to prevent open-federation requests from probing localhost or private networks. Enable only for an isolated development federation.")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
+                                Divider().opacity(0.2)
+                                Toggle("Become an open-federation DHT node", isOn: $model.openFederationDHTEnabled)
+                                Text(model.openFederationDHTEnabled
+                                     ? "This relay accepts and serves signed short-lived DHT relay records for the selected open federation namespace."
+                                     : "DHT routes remain disabled. The relay can still use coordinators and bounded peer exchange if configured.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                if model.openFederationDHTEnabled {
+                                    HStack {
+                                        Text("DHT Max Records")
+                                        Spacer()
+                                        TextField("256", text: $model.openFederationDHTMaxRecords)
+                                            .relayFieldStyle()
+                                            .frame(width: 92)
+                                    }
+                                    HStack {
+                                        Text("DHT Records Per Host")
+                                        Spacer()
+                                        TextField("4", text: $model.openFederationDHTMaxRecordsPerHost)
+                                            .relayFieldStyle()
+                                            .frame(width: 92)
+                                    }
+                                    HStack {
+                                        Text("DHT Query Limit")
+                                        Spacer()
+                                        TextField("256", text: $model.openFederationDHTMaxQueryRecords)
+                                            .relayFieldStyle()
+                                            .frame(width: 92)
+                                    }
+                                }
+                                HStack {
+                                    Text("Peer Exchange Limit")
+                                    Spacer()
+                                    TextField("12", text: $model.relayPeerExchangeLimit)
+                                        .relayFieldStyle()
+                                        .frame(width: 92)
+                                }
+                                Text("PEX advertises a bounded list of already-known open relays through /info. Set to 0 to disable peer hints.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
                             HStack {
                                 Text("Heartbeat (seconds)")
@@ -444,6 +484,10 @@ struct ContentView: View {
                                     "Inter-relay Auth",
                                     value: model.federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Disabled" : "Token configured"
                                 )
+                                if model.federationMode == .open {
+                                    federationDetailRow("DHT Node", value: model.openFederationDHTEnabled ? "Enabled" : "Disabled")
+                                    federationDetailRow("PEX Limit", value: model.relayPeerExchangeLimit)
+                                }
                                 if model.federationMode == .curated {
                                     federationDetailRow("Strict Policy", value: model.curatedStrictPolicyEnabled ? "Enabled" : "Disabled")
                                     federationDetailRow("Require Signed", value: model.curatedRequireSignedDirectory ? "Yes" : "No")

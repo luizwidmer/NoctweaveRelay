@@ -254,6 +254,11 @@ final class ServerViewModel: ObservableObject {
     @Published var curatedCoordinatorQuorum: String = "1"
     @Published var curatedRequireSignedDirectory: Bool = true
     @Published var allowPrivateFederationEndpoints: Bool = false
+    @Published var openFederationDHTEnabled: Bool = false
+    @Published var openFederationDHTMaxRecords: String = "256"
+    @Published var openFederationDHTMaxRecordsPerHost: String = "4"
+    @Published var openFederationDHTMaxQueryRecords: String = "256"
+    @Published var relayPeerExchangeLimit: String = "12"
     @Published var advertisedEndpoint: String = ""
     @Published var federationSourceURL: String = ""
     @Published var federationSourceStatus: String?
@@ -577,6 +582,11 @@ final class ServerViewModel: ObservableObject {
             tlsIdentityPassword: transportSecurityMode.usesRelayTLS && !tlsPassword.isEmpty ? tlsPassword : nil,
             federationCoordinatorEndpoints: coordinators.isEmpty ? nil : coordinators,
             coordinatorHeartbeatSeconds: heartbeatSeconds,
+            relayPeerExchangeLimit: max(0, Int(relayPeerExchangeLimit) ?? 12),
+            openFederationDHTEnabled: openFederationDHTEnabled,
+            openFederationDHTMaxRecords: max(1, Int(openFederationDHTMaxRecords) ?? 256),
+            openFederationDHTMaxRecordsPerHost: max(1, Int(openFederationDHTMaxRecordsPerHost) ?? 4),
+            openFederationDHTMaxQueryRecords: max(1, Int(openFederationDHTMaxQueryRecords) ?? 256),
             coordinatorDirectorySigningPrivateKey: coordinatorDirectorySigningKey(),
             curatedStrictPolicyEnabled: curatedStrictPolicyEnabled,
             curatedCoordinatorQuorum: curatedQuorum,
@@ -936,6 +946,11 @@ final class ServerViewModel: ObservableObject {
         var curatedCoordinatorQuorum: String
         var curatedRequireSignedDirectory: Bool
         var allowPrivateFederationEndpoints: Bool?
+        var openFederationDHTEnabled: Bool?
+        var openFederationDHTMaxRecords: String?
+        var openFederationDHTMaxRecordsPerHost: String?
+        var openFederationDHTMaxQueryRecords: String?
+        var relayPeerExchangeLimit: String?
         var advertisedEndpoint: String
         var federationSourceURL: String
         var temporalBucketMode: RelayTemporalBucketMode?
@@ -989,6 +1004,11 @@ final class ServerViewModel: ObservableObject {
             $curatedCoordinatorQuorum.map { _ in () }.eraseToAnyPublisher(),
             $curatedRequireSignedDirectory.map { _ in () }.eraseToAnyPublisher(),
             $allowPrivateFederationEndpoints.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTMaxRecords.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTMaxRecordsPerHost.map { _ in () }.eraseToAnyPublisher(),
+            $openFederationDHTMaxQueryRecords.map { _ in () }.eraseToAnyPublisher(),
+            $relayPeerExchangeLimit.map { _ in () }.eraseToAnyPublisher(),
             $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
             $federationSourceURL.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMode.map { _ in () }.eraseToAnyPublisher(),
@@ -1059,6 +1079,11 @@ final class ServerViewModel: ObservableObject {
             curatedCoordinatorQuorum: curatedCoordinatorQuorum,
             curatedRequireSignedDirectory: curatedRequireSignedDirectory,
             allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
+            openFederationDHTEnabled: openFederationDHTEnabled,
+            openFederationDHTMaxRecords: openFederationDHTMaxRecords,
+            openFederationDHTMaxRecordsPerHost: openFederationDHTMaxRecordsPerHost,
+            openFederationDHTMaxQueryRecords: openFederationDHTMaxQueryRecords,
+            relayPeerExchangeLimit: relayPeerExchangeLimit,
             advertisedEndpoint: advertisedEndpoint,
             federationSourceURL: federationSourceURL,
             temporalBucketMode: temporalBucketMode,
@@ -1145,6 +1170,11 @@ final class ServerViewModel: ObservableObject {
             curatedCoordinatorQuorum = persisted.curatedCoordinatorQuorum
             curatedRequireSignedDirectory = persisted.curatedRequireSignedDirectory
             allowPrivateFederationEndpoints = persisted.allowPrivateFederationEndpoints ?? false
+            openFederationDHTEnabled = persisted.openFederationDHTEnabled ?? false
+            openFederationDHTMaxRecords = persisted.openFederationDHTMaxRecords ?? "256"
+            openFederationDHTMaxRecordsPerHost = persisted.openFederationDHTMaxRecordsPerHost ?? "4"
+            openFederationDHTMaxQueryRecords = persisted.openFederationDHTMaxQueryRecords ?? "256"
+            relayPeerExchangeLimit = persisted.relayPeerExchangeLimit ?? "12"
             advertisedEndpoint = persisted.advertisedEndpoint
             federationSourceURL = persisted.federationSourceURL
             temporalBucketMinutes = persisted.temporalBucketMinutes
