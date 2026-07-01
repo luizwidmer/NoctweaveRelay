@@ -658,10 +658,6 @@ final class ServerViewModel: ObservableObject {
                 lastError = "Manual federation uses standard relays only. Set Relay Kind to Standard."
                 return
             }
-            guard !configuration.federationAllowList.isEmpty else {
-                lastError = "Manual federation requires at least one node in the federated node list."
-                return
-            }
         }
         let attachmentBlobStore: AttachmentBlobStore?
         do {

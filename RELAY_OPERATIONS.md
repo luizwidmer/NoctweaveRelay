@@ -2,6 +2,8 @@
 
 This document explains relay types, federation setup, and runtime behavior in the Noctyra Relay app.
 
+For the complete Noctweave federation wire protocol, JSON request examples, endpoint parsing rules, and Linux relay recipes, see `Noctweave Documentation/federation_protocol_and_operations.md`.
+
 ## 1. Quick Setup
 1. Set `Host` and `Port`.
 2. Choose `Relay Kind`.
@@ -33,6 +35,7 @@ Important: kind is descriptive metadata. Forwarding rules are enforced by federa
   - Destination relay must report relay kind `standard`.
   - If federation name is set, destination name must match.
   - No coordinator, DHT, quorum, or peer exchange is used.
+  - The relay may start with an empty node list; forwarding fails closed until peers are added.
 - `curated`
   - Strict policy is enabled by default.
   - Forwarding requires:
@@ -88,7 +91,7 @@ Example:
 Allowlist parsing rules:
 - `host:port` is accepted.
 - `https://host[:port]` and `wss://host[:port]` are accepted.
-- If URL port is omitted, relay defaults to `9339`.
+- If URL port is omitted, `https`/`wss` default to `443`, `http`/`ws` default to `80`, and bare TCP defaults to `9339`.
 
 ## 5. Storage Modes
 - `Disk`: persists envelopes, prekeys, and attachment data at the selected file path.
