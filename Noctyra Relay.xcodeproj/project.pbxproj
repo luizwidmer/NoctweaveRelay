@@ -193,6 +193,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -250,6 +251,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -261,7 +263,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 9MY7SXN56X;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -276,20 +278,21 @@
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
-					ENABLE_USER_SELECTED_FILES = readwrite;
-					GENERATE_INFOPLIST_FILE = YES;
-					INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-					INFOPLIST_KEY_NSBonjourServices = (
-						"_noctyra._tcp",
-					);
-					INFOPLIST_KEY_NSHumanReadableCopyright = "";
-					INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Noctyra Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.";
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = NoctyraRelay;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSBonjourServices = _noctyra._tcp;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Noctyra Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.luizwidmer.NoctyraRelay";
+				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctyraRelay;
 				PRODUCT_NAME = "Noctyra Relay";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -308,7 +311,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 9MY7SXN56X;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -323,20 +326,21 @@
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
-					ENABLE_USER_SELECTED_FILES = readwrite;
-					GENERATE_INFOPLIST_FILE = YES;
-					INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-					INFOPLIST_KEY_NSBonjourServices = (
-						"_noctyra._tcp",
-					);
-					INFOPLIST_KEY_NSHumanReadableCopyright = "";
-					INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Noctyra Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.";
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = NoctyraRelay;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSBonjourServices = _noctyra._tcp;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Noctyra Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.luizwidmer.NoctyraRelay";
+				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctyraRelay;
 				PRODUCT_NAME = "Noctyra Relay";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
