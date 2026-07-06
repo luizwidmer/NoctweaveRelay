@@ -280,10 +280,10 @@ private enum RelayStorePathValidationError: LocalizedError {
             return "Choose a valid file path for relay storage."
         case .storePathIsDirectory:
             return "Store path points to a directory. Choose a file path (for example relay_store.sqlite)."
-        case .storeDirectoryNotWritable(let path):
-            return "Store directory is not writable: \(path)"
-        case .storeFileNotWritable(let path):
-            return "Store file is not writable: \(path)"
+        case .storeDirectoryNotWritable:
+            return "Store directory is not writable."
+        case .storeFileNotWritable:
+            return "Store file is not writable."
         }
     }
 }
@@ -627,7 +627,7 @@ final class ServerViewModel: ObservableObject {
             }
             let expandedPath = (trimmedTLSPath as NSString).expandingTildeInPath
             guard FileManager.default.fileExists(atPath: expandedPath) else {
-                lastError = "TLS certificate file not found at \(expandedPath)."
+                lastError = "TLS certificate file was not found."
                 return
             }
         } else if transportSecurityMode == .reverseProxyTLS {
@@ -649,7 +649,7 @@ final class ServerViewModel: ObservableObject {
         do {
             resolvedStoreURL = try validatedStoreURL()
         } catch {
-            lastError = error.localizedDescription
+            lastError = redactedRelayAppError(error, fallback: "Relay storage path is not usable.")
             return
         }
         let configuration = buildConfiguration()
@@ -663,7 +663,7 @@ final class ServerViewModel: ObservableObject {
         do {
             attachmentBlobStore = try makeAttachmentBlobStore()
         } catch {
-            lastError = error.localizedDescription
+            lastError = redactedRelayAppError(error, fallback: "Attachment storage configuration is not usable.")
             return
         }
         store = RelayStore(
@@ -687,7 +687,7 @@ final class ServerViewModel: ObservableObject {
                 try server.start(host: trimmedHost, port: portValue)
                 isRunning = true
             } catch {
-                lastError = "Failed to start server: \(error.localizedDescription)"
+                lastError = "Failed to start server: \(redactedRelayAppError(error, fallback: "Server startup failed."))"
             }
         }
     }
@@ -734,7 +734,7 @@ final class ServerViewModel: ObservableObject {
         case .fetched(_, let count):
             appendLog("Returned \(count) encrypted envelope(s)")
         case .error(let message):
-            appendLog("Error: \(message)")
+            appendLog("Error: \(redactedRelayMessage(message, fallback: "Relay operation failed."))")
         }
     }
 
@@ -743,6 +743,108 @@ final class ServerViewModel: ObservableObject {
         if logs.count > 200 {
             logs.removeFirst(logs.count - 200)
         }
+    }
+
+    private func appendRedactedLog(_ prefix: String, error: Error, fallback: String) {
+        appendLog("\(prefix): \(redactedRelayAppError(error, fallback: fallback))")
+    }
+
+    private func redactedRelayAppError(_ error: Error, fallback: String) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut:
+                return "Request timed out."
+            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return "Network connection failed."
+            case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .clientCertificateRejected, .clientCertificateRequired:
+                return "TLS validation failed."
+            case .appTransportSecurityRequiresSecureConnection:
+                return "Transport is blocked by App Transport Security."
+            default:
+                return "Network request failed."
+            }
+        }
+        if let nwError = error as? NWError {
+            return Self.redactedNetworkError(nwError)
+        }
+        let description = error.localizedDescription
+        return redactedRelayMessage(description, fallback: fallback)
+    }
+
+    private func redactedRelayMessage(_ message: String, fallback: String) -> String {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = normalized.lowercased()
+        guard !normalized.isEmpty else {
+            return fallback
+        }
+        if lowercased.hasPrefix("relay returned http ") {
+            return normalized
+        }
+        if lowercased.contains("timed out") {
+            return "Request timed out."
+        }
+        if lowercased.contains("tls") || lowercased.contains("certificate") {
+            return "TLS validation failed."
+        }
+        if lowercased.contains("permission") || lowercased.contains("operation not permitted") || lowercased.contains("eperm") {
+            return "Permission denied."
+        }
+        if lowercased.contains("auth") || lowercased.contains("token") || lowercased.contains("proof") || lowercased.contains("signature") || lowercased.contains("unauthorized") || lowercased.contains("forbidden") {
+            return "Authentication was rejected."
+        }
+        if lowercased.contains("rate") && lowercased.contains("limit") {
+            return "Rate limit reached."
+        }
+        if lowercased.contains("policy") || lowercased.contains("not allowed") || lowercased.contains("disabled") {
+            return "Policy rejected the request."
+        }
+        if lowercased.contains("not found") || lowercased.contains("missing") {
+            return "Requested item was not found."
+        }
+        if lowercased.contains("invalid") || lowercased.contains("malformed") || lowercased.contains("bad request") {
+            return "Invalid request or response."
+        }
+        return fallback
+    }
+
+    nonisolated private static func redactedNetworkError(_ error: NWError) -> String {
+        switch error {
+        case .posix(let code):
+            if code == .EPERM || code == .EACCES {
+                return "Permission denied."
+            }
+            if code == .ECONNREFUSED || code == .ECONNRESET || code == .ENETDOWN || code == .ENETUNREACH || code == .EHOSTUNREACH {
+                return "Network connection failed."
+            }
+            return "Network operation failed."
+        case .tls:
+            return "TLS validation failed."
+        case .dns:
+            return "DNS resolution failed."
+        case .wifiAware:
+            return "Network operation failed."
+        @unknown default:
+            return "Network operation failed."
+        }
+    }
+
+    nonisolated private static func redactedPermissionProbeError(_ error: Error) -> String {
+        if let nwError = error as? NWError {
+            return redactedNetworkError(nwError)
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut:
+                return "Permission probe timed out."
+            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return "Network connection failed."
+            case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .clientCertificateRejected, .clientCertificateRequired:
+                return "TLS validation failed."
+            default:
+                return "Permission probe failed."
+            }
+        }
+        return "Permission probe failed."
     }
 
     private func buildConfiguration() -> RelayConfiguration {
@@ -881,7 +983,11 @@ final class ServerViewModel: ObservableObject {
                 account: .coordinatorDirectorySigningKey
             )
         } catch {
-            appendLog("Failed to persist coordinator signing key: \(error.localizedDescription)")
+            appendRedactedLog(
+                "Failed to persist coordinator signing key",
+                error: error,
+                fallback: "Secret storage is unavailable."
+            )
         }
         return generated
     }
@@ -1041,7 +1147,10 @@ final class ServerViewModel: ObservableObject {
                 .send(.health(), timeout: 5)
                 let latencyMs = max(0, Int(Date().timeIntervalSince(started) * 1_000))
                 guard response.type == .ok else {
-                    let message = response.error ?? "Unexpected response: \(response.type.rawValue)"
+                    let message = redactedRelayMessage(
+                        response.error ?? "Unexpected response: \(response.type.rawValue)",
+                        fallback: "Federated relay returned an unexpected response."
+                    )
                     manualFederationHealth[trimmed] = .failed(message: message, checkedAt: Date())
                     appendLog("Federation health failed for \(trimmed): \(message)")
                     return
@@ -1049,7 +1158,7 @@ final class ServerViewModel: ObservableObject {
                 manualFederationHealth[trimmed] = .healthy(latencyMs: latencyMs, checkedAt: Date())
                 appendLog("Federation health OK for \(trimmed) (\(latencyMs) ms).")
             } catch {
-                let message = error.localizedDescription
+                let message = redactedRelayAppError(error, fallback: "Federation health check failed.")
                 manualFederationHealth[trimmed] = .failed(message: message, checkedAt: Date())
                 appendLog("Federation health failed for \(trimmed): \(message)")
             }
@@ -1208,7 +1317,7 @@ final class ServerViewModel: ObservableObject {
             federationSourceStatus = "Loaded \(document.allowlist?.count ?? 0) allowlist entries."
         } catch {
             federationSourceStatus = nil
-            lastError = "Failed to fetch federation: \(error.localizedDescription)"
+            lastError = "Failed to fetch federation: \(redactedRelayAppError(error, fallback: "Federation fetch failed."))"
         }
     }
 
@@ -1606,7 +1715,7 @@ final class ServerViewModel: ObservableObject {
             )
         } catch {
             // Keep runtime functional even if settings cannot be written.
-            logs.append("Settings persistence failed: \(error.localizedDescription)")
+            logs.append("Settings persistence failed: \(redactedRelayAppError(error, fallback: "Settings could not be written."))")
             if logs.count > 200 {
                 logs.removeFirst(logs.count - 200)
             }
@@ -1693,7 +1802,7 @@ final class ServerViewModel: ObservableObject {
             isApplyingPersistedSettings = false
         } catch {
             isApplyingPersistedSettings = false
-            logs.append("Failed to load persisted settings: \(error.localizedDescription)")
+            logs.append("Failed to load persisted settings: \(redactedRelayAppError(error, fallback: "Settings could not be loaded."))")
             if logs.count > 200 {
                 logs.removeFirst(logs.count - 200)
             }
@@ -1731,7 +1840,7 @@ final class ServerViewModel: ObservableObject {
                     finish(
                         PermissionProbeResult(
                             status: .failed,
-                            message: "Local network probe failed: \(error.localizedDescription)"
+                            message: "Local network probe failed: \(Self.redactedPermissionProbeError(error))"
                         )
                     )
                 case .waiting(let error):
@@ -1744,7 +1853,7 @@ final class ServerViewModel: ObservableObject {
                     finish(
                         PermissionProbeResult(
                             status: status,
-                            message: "Local network waiting: \(error.localizedDescription)"
+                            message: "Local network waiting: \(Self.redactedPermissionProbeError(error))"
                         )
                     )
                 case .cancelled:
@@ -1785,7 +1894,7 @@ final class ServerViewModel: ObservableObject {
                 continuation.resume(
                     returning: PermissionProbeResult(
                         status: .failed,
-                        message: "Incoming connection probe failed to start: \(error.localizedDescription)"
+                        message: "Incoming connection probe failed to start: \(Self.redactedPermissionProbeError(error))"
                     )
                 )
                 return
@@ -1810,14 +1919,14 @@ final class ServerViewModel: ObservableObject {
                     finish(
                         PermissionProbeResult(
                             status: .failed,
-                            message: "Incoming listener probe failed: \(error.localizedDescription)"
+                            message: "Incoming listener probe failed: \(Self.redactedPermissionProbeError(error))"
                         )
                     )
                 case .waiting(let error):
                     finish(
                         PermissionProbeResult(
                             status: .denied,
-                            message: "Incoming listener waiting: \(error.localizedDescription)"
+                            message: "Incoming listener waiting: \(Self.redactedPermissionProbeError(error))"
                         )
                     )
                 case .cancelled:
