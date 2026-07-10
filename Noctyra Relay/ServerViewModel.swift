@@ -1975,14 +1975,49 @@ final class ServerViewModel: ObservableObject {
     private static func probeLocalNetworkPermission(timeoutSeconds: TimeInterval = 4.0) async -> PermissionProbeResult {
         await withCheckedContinuation { continuation in
             let queue = DispatchQueue(label: "NoctyraRelay.LocalNetworkPermission")
+            let probeServiceName = "Noctyra permission check \(UUID().uuidString)"
             let descriptor = NWBrowser.Descriptor.bonjour(type: "_noctyra._tcp", domain: nil)
             let browser = NWBrowser(for: descriptor, using: .tcp)
             let gate = PermissionProbeGate()
+            let listener: NWListener
+            do {
+                listener = try NWListener(using: .tcp, on: .any)
+                listener.service = NWListener.Service(
+                    name: probeServiceName,
+                    type: "_noctyra._tcp"
+                )
+            } catch {
+                continuation.resume(
+                    returning: PermissionProbeResult(
+                        status: .failed,
+                        message: "Local network probe failed to start: \(Self.redactedPermissionProbeError(error))"
+                    )
+                )
+                return
+            }
 
             @Sendable func finish(_ result: PermissionProbeResult) {
                 guard gate.claim() else { return }
                 browser.cancel()
+                listener.cancel()
                 continuation.resume(returning: result)
+            }
+
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .failed(let error), .waiting(let error):
+                    finish(
+                        PermissionProbeResult(
+                            status: Self.permissionStatus(for: error),
+                            message: "Local network advertisement failed: \(Self.redactedPermissionProbeError(error))"
+                        )
+                    )
+                default:
+                    break
+                }
+            }
+            listener.newConnectionHandler = { connection in
+                connection.cancel()
             }
 
             browser.stateUpdateHandler = { state in
@@ -2018,15 +2053,22 @@ final class ServerViewModel: ObservableObject {
                     break
                 }
             }
-            browser.browseResultsChangedHandler = { _, _ in
-                // A result callback indicates browse permissions are functioning.
+            browser.browseResultsChangedHandler = { results, _ in
+                let foundProbe = results.contains { result in
+                    guard case .service(let name, _, _, _) = result.endpoint else {
+                        return false
+                    }
+                    return name == probeServiceName
+                }
+                guard foundProbe else { return }
                 finish(
                     PermissionProbeResult(
                         status: .ready,
-                        message: "The local-network browse check completed. macOS may still require confirmation when the relay first communicates with another device."
+                        message: "Local-network permission was confirmed by advertising and rediscovering a temporary private service."
                     )
                 )
             }
+            listener.start(queue: queue)
             browser.start(queue: queue)
             queue.asyncAfter(deadline: .now() + timeoutSeconds) {
                 finish(
@@ -2037,6 +2079,13 @@ final class ServerViewModel: ObservableObject {
                 )
             }
         }
+    }
+
+    nonisolated private static func permissionStatus(for error: NWError) -> StartupPermissionStatus {
+        if case .posix(let code) = error, code == .EPERM {
+            return .denied
+        }
+        return .failed
     }
 
     private static func probeIncomingConnectionPermission(timeoutSeconds: TimeInterval = 3.0) async -> PermissionProbeResult {
