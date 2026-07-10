@@ -415,7 +415,7 @@ struct ContentView: View {
                                     .relayFieldStyle()
                                 TextField("Coordinator signing keys (base64, aligned with endpoints)", text: $model.federationCoordinatorPublicKeys)
                                     .relayFieldStyle()
-                                SecureField("Coordinator registration token (optional shared secret)", text: $model.coordinatorRegistrationToken)
+                                SecureField("Coordinator registration token (required for curated mode)", text: $model.coordinatorRegistrationToken)
                                     .relayFieldStyle()
                             }
                             if model.federationMode == .open {

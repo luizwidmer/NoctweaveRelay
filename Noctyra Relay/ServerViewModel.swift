@@ -51,6 +51,9 @@ enum RelayAttachmentStorageBackend: String, CaseIterable, Identifiable, Codable 
 private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
     let backendName = "ipfs"
 
+    private static let maximumBlobBytes = 256 * 1024
+    private static let maximumControlResponseBytes = 64 * 1024
+
     private let apiEndpoint: URL
     private let gatewayEndpoint: URL
     private let timeoutSeconds: TimeInterval
@@ -58,10 +61,13 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
     init(apiEndpoint: URL, gatewayEndpoint: URL? = nil, timeoutSeconds: TimeInterval = 10) {
         self.apiEndpoint = apiEndpoint
         self.gatewayEndpoint = gatewayEndpoint ?? apiEndpoint
-        self.timeoutSeconds = max(1, timeoutSeconds)
+        self.timeoutSeconds = min(300, max(1, timeoutSeconds))
     }
 
     func put(_ data: Data, attachmentId: UUID, chunkIndex: Int, expiresAt: Date) throws -> AttachmentExternalRecord {
+        guard !data.isEmpty, data.count <= Self.maximumBlobBytes else {
+            throw AttachmentBlobStoreError.uploadFailed("Attachment chunk size is invalid")
+        }
         let boundary = "noctyra-\(UUID().uuidString)"
         var body = Data()
         body.append(Data("--\(boundary)\r\n".utf8))
@@ -81,8 +87,8 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        let responseData = try send(request)
-        guard let cid = decodeCID(from: responseData), !cid.isEmpty else {
+        let responseData = try send(request, maximumBytes: Self.maximumControlResponseBytes)
+        guard let cid = decodeCID(from: responseData), Self.isValidCID(cid) else {
             throw AttachmentBlobStoreError.uploadFailed("IPFS add response did not contain a CID")
         }
         return AttachmentExternalRecord(
@@ -95,7 +101,12 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
     }
 
     func get(_ record: AttachmentExternalRecord) throws -> Data {
-        let data = try fetch(locator: record.locator)
+        guard Self.isValidCID(record.locator),
+              record.byteCount > 0,
+              record.byteCount <= Self.maximumBlobBytes else {
+            throw AttachmentBlobStoreError.fetchFailed("Attachment record is invalid")
+        }
+        let data = try fetch(locator: record.locator, maximumBytes: record.byteCount)
         guard data.count == record.byteCount,
               AttachmentBlobDigest.sha256Hex(data) == record.sha256Hex else {
             throw AttachmentBlobStoreError.digestMismatch
@@ -104,21 +115,22 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
     }
 
     func delete(_ record: AttachmentExternalRecord) {
+        guard Self.isValidCID(record.locator) else { return }
         var request = URLRequest(url: apiURL(path: "/api/v0/pin/rm", queryItems: [
             URLQueryItem(name: "arg", value: record.locator)
         ]))
         request.httpMethod = "POST"
         request.timeoutInterval = timeoutSeconds
-        _ = try? send(request)
+        _ = try? send(request, maximumBytes: Self.maximumControlResponseBytes)
     }
 
-    private func fetch(locator: String) throws -> Data {
+    private func fetch(locator: String, maximumBytes: Int) throws -> Data {
         var catRequest = URLRequest(url: apiURL(path: "/api/v0/cat", queryItems: [
             URLQueryItem(name: "arg", value: locator)
         ]))
         catRequest.httpMethod = "POST"
         catRequest.timeoutInterval = timeoutSeconds
-        if let data = try? send(catRequest) {
+        if let data = try? send(catRequest, maximumBytes: maximumBytes) {
             return data
         }
 
@@ -127,7 +139,7 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
         gatewayURL.appendPathComponent(locator)
         var gatewayRequest = URLRequest(url: gatewayURL)
         gatewayRequest.timeoutInterval = timeoutSeconds
-        return try send(gatewayRequest)
+        return try send(gatewayRequest, maximumBytes: maximumBytes)
     }
 
     private func apiURL(path: String, queryItems: [URLQueryItem]) -> URL {
@@ -137,43 +149,17 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
         return components?.url ?? apiEndpoint
     }
 
-    private func send(_ request: URLRequest) throws -> Data {
-        let semaphore = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var result: Result<Data, Error>?
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            defer { semaphore.signal() }
-            let nextResult: Result<Data, Error>
-            if let error {
-                nextResult = .failure(error)
-            } else {
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 200
-                if (200..<300).contains(status) {
-                    nextResult = .success(data ?? Data())
-                } else {
-                    nextResult = .failure(AttachmentBlobStoreError.fetchFailed("HTTP \(status)"))
-                }
-            }
-            lock.lock()
-            result = nextResult
-            lock.unlock()
-        }.resume()
-
-        let timeout = DispatchTime.now() + timeoutSeconds + 1
-        guard semaphore.wait(timeout: timeout) == .success else {
-            throw AttachmentBlobStoreError.fetchFailed("Request timed out")
+    private func send(_ request: URLRequest, maximumBytes: Int) throws -> Data {
+        let output = try RelayBoundedURLLoader.loadSynchronously(
+            request,
+            maximumBytes: maximumBytes,
+            timeout: timeoutSeconds + 1
+        )
+        guard let response = output.response as? HTTPURLResponse,
+              (200..<300).contains(response.statusCode) else {
+            throw AttachmentBlobStoreError.fetchFailed("IPFS request was rejected")
         }
-        lock.lock()
-        let finalResult = result
-        lock.unlock()
-        switch finalResult {
-        case .success(let data):
-            return data
-        case .failure(let error):
-            throw error
-        case .none:
-            throw AttachmentBlobStoreError.fetchFailed("No response")
-        }
+        return output.data
     }
 
     private func decodeCID(from data: Data) -> String? {
@@ -194,6 +180,173 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
             }
         }
         return nil
+    }
+
+    private static func isValidCID(_ value: String) -> Bool {
+        guard (20...128).contains(value.utf8.count) else { return false }
+        return value.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+        }
+    }
+}
+
+private final class RelayBoundedURLLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    typealias Output = (data: Data, response: URLResponse)
+
+    private let maximumBytes: Int
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var response: URLResponse?
+    private var completion: ((Result<Output, Error>) -> Void)?
+    private var session: URLSession?
+    private var isComplete = false
+
+    private init(maximumBytes: Int) {
+        self.maximumBytes = max(1, maximumBytes)
+    }
+
+    static func loadSynchronously(
+        _ request: URLRequest,
+        maximumBytes: Int,
+        timeout: TimeInterval
+    ) throws -> Output {
+        let loader = RelayBoundedURLLoader(maximumBytes: maximumBytes)
+        let semaphore = DispatchSemaphore(value: 0)
+        let resultBox = RelaySynchronousResultBox<Output>()
+        loader.start(request) { result in
+            resultBox.set(result)
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + max(1, timeout)) == .success else {
+            loader.cancel()
+            throw AttachmentBlobStoreError.fetchFailed("IPFS request timed out")
+        }
+        guard let result = resultBox.get() else {
+            throw AttachmentBlobStoreError.fetchFailed("IPFS response was unavailable")
+        }
+        return try result.get()
+    }
+
+    private func start(_ request: URLRequest, completion: @escaping (Result<Output, Error>) -> Void) {
+        lock.lock()
+        guard !isComplete else {
+            lock.unlock()
+            completion(.failure(CancellationError()))
+            return
+        }
+        self.completion = completion
+        lock.unlock()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
+        lock.lock()
+        guard !isComplete else {
+            lock.unlock()
+            session.invalidateAndCancel()
+            return
+        }
+        self.session = session
+        lock.unlock()
+        session.dataTask(with: request).resume()
+    }
+
+    private func cancel() {
+        finish(.failure(CancellationError()))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        if response.expectedContentLength > Int64(maximumBytes) {
+            completionHandler(.cancel)
+            finish(.failure(AttachmentBlobStoreError.fetchFailed("IPFS response exceeded its limit")))
+            return
+        }
+        lock.lock()
+        self.response = response
+        lock.unlock()
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        lock.lock()
+        guard !isComplete else {
+            lock.unlock()
+            return
+        }
+        let exceedsLimit = data.count > maximumBytes - buffer.count
+        if !exceedsLimit {
+            buffer.append(data)
+        }
+        lock.unlock()
+        if exceedsLimit {
+            dataTask.cancel()
+            finish(.failure(AttachmentBlobStoreError.fetchFailed("IPFS response exceeded its limit")))
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            finish(.failure(error))
+            return
+        }
+        lock.lock()
+        let output = response.map { (buffer, $0) }
+        lock.unlock()
+        guard let output else {
+            finish(.failure(AttachmentBlobStoreError.fetchFailed("IPFS response was unavailable")))
+            return
+        }
+        finish(.success(output))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+
+    private func finish(_ result: Result<Output, Error>) {
+        lock.lock()
+        guard !isComplete else {
+            lock.unlock()
+            return
+        }
+        isComplete = true
+        let completion = self.completion
+        self.completion = nil
+        let session = self.session
+        self.session = nil
+        buffer.removeAll(keepingCapacity: false)
+        lock.unlock()
+        session?.invalidateAndCancel()
+        completion?(result)
+    }
+}
+
+private final class RelaySynchronousResultBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<Value, Error>?
+
+    func set(_ result: Result<Value, Error>) {
+        lock.lock()
+        self.result = result
+        lock.unlock()
+    }
+
+    func get() -> Result<Value, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return result
     }
 }
 
@@ -531,7 +684,7 @@ final class ServerViewModel: ObservableObject {
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
     @Published var groupCreationMode: GroupCreationMode = .allowed
-    @Published var groupSecurityModel: GroupSecurityModel = .relayBackedPairwise
+    @Published var groupSecurityModel: GroupSecurityModel = .mlsDerivedTree
     @Published var storageMode: RelayStorageMode = .disk
     @Published var storePath: String = ""
     @Published var maxInboxMessages: String = "1000"
@@ -561,6 +714,7 @@ final class ServerViewModel: ObservableObject {
     private let defaultRelayPort: UInt16 = 9339
     private var settingsCancellables: Set<AnyCancellable> = []
     private var isApplyingPersistedSettings = false
+    private var secretStoreFailure: String?
 
     var effectiveTLSEnabled: Bool {
         transportSecurityMode.advertisesTLS
@@ -599,6 +753,10 @@ final class ServerViewModel: ObservableObject {
     }
 
     func start() {
+        guard secretStoreFailure == nil else {
+            lastError = "Saved relay secrets could not be read from Keychain. Restart after restoring Keychain access; the relay will not start with empty credentials."
+            return
+        }
         guard let portValue = UInt16(port) else {
             lastError = "Invalid port."
             return
@@ -610,8 +768,9 @@ final class ServerViewModel: ObservableObject {
         }
         let trimmedPassword = relayPassword.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedPassword.isEmpty {
-            guard trimmedPassword.count >= 8 else {
-                lastError = "Relay password must have at least 8 characters."
+            guard trimmedPassword == relayPassword,
+                  (12...4_096).contains(trimmedPassword.utf8.count) else {
+                lastError = "Relay password must contain 12 to 4096 UTF-8 bytes without surrounding whitespace."
                 return
             }
             guard trimmedPassword == relayPasswordConfirmation else {
@@ -658,6 +817,20 @@ final class ServerViewModel: ObservableObject {
                 lastError = "Manual federation uses standard relays only. Set Relay Kind to Standard."
                 return
             }
+        }
+        if federationMode == .curated,
+           !(16...4_096).contains(
+                coordinatorRegistrationToken
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .utf8.count
+           ) {
+            lastError = "Curated federation requires a coordinator registration token of at least 16 bytes."
+            return
+        }
+        let forwardingToken = federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !forwardingToken.isEmpty, !(16...4_096).contains(forwardingToken.utf8.count) {
+            lastError = "Inter-relay forwarding token must contain 16 to 4096 UTF-8 bytes."
+            return
         }
         let attachmentBlobStore: AttachmentBlobStore?
         do {
@@ -1024,7 +1197,7 @@ final class ServerViewModel: ObservableObject {
             gatewayEndpoint = endpoint
         }
         guard let timeoutSeconds = TimeInterval(ipfsTimeoutSeconds.trimmingCharacters(in: .whitespacesAndNewlines)),
-              timeoutSeconds >= 1 else {
+              (1...300).contains(timeoutSeconds) else {
             throw RelayAttachmentStorageValidationError.invalidIPFSTimeout
         }
         return RelayIPFSAttachmentBlobStore(
@@ -1036,10 +1209,17 @@ final class ServerViewModel: ObservableObject {
 
     private func validatedHTTPURL(_ value: String) -> URL? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme?.lowercased(),
+        guard let components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
-              url.host?.isEmpty == false else {
+              components.host?.isEmpty == false,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/",
+              components.port != 0,
+              let url = components.url else {
             return nil
         }
         return url
@@ -1262,15 +1442,13 @@ final class ServerViewModel: ObservableObject {
             var request = URLRequest(url: url)
             request.timeoutInterval = 15
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await BoundedHTTPResponseLoader.load(
+                request,
+                maximumBytes: 1_000_000
+            )
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 federationSourceStatus = nil
                 lastError = "Federation fetch failed with HTTP \(http.statusCode)."
-                return
-            }
-            guard data.count <= 1_000_000 else {
-                federationSourceStatus = nil
-                lastError = "Federation document exceeds the 1 MB limit."
                 return
             }
             let document = try JSONDecoder().decode(FederationSourceDocument.self, from: data)
@@ -1356,51 +1534,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func parseEndpoint(_ value: String) -> RelayEndpoint? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let url = URLComponents(string: trimmed), let scheme = url.scheme {
-            guard let host = url.host else { return nil }
-            let loweredScheme = scheme.lowercased()
-            let defaultPort: UInt16
-            switch loweredScheme {
-            case "https", "wss":
-                defaultPort = 443
-            case "http", "ws":
-                defaultPort = 80
-            default:
-                defaultPort = defaultRelayPort
-            }
-            let port = UInt16(url.port ?? Int(defaultPort))
-            switch loweredScheme {
-            case "https":
-                return RelayEndpoint(host: host, port: port, useTLS: true, transport: .http)
-            case "http":
-                return RelayEndpoint(host: host, port: port, useTLS: false, transport: .http)
-            case "tls":
-                return RelayEndpoint(host: host, port: port, useTLS: true, transport: .tcp)
-            case "tcp":
-                return RelayEndpoint(host: host, port: port, useTLS: false, transport: .tcp)
-            case "wss":
-                return RelayEndpoint(host: host, port: port, useTLS: true, transport: .websocket)
-            case "ws":
-                return RelayEndpoint(host: host, port: port, useTLS: false, transport: .websocket)
-            default:
-                return nil
-            }
-        }
-        let base = trimmed.split(separator: "/").first.map(String.init) ?? trimmed
-        if base.hasPrefix("["), let close = base.firstIndex(of: "]") {
-            let host = String(base[base.index(after: base.startIndex)..<close])
-            let portStart = base.index(after: close)
-            let portString = base[portStart...].trimmingCharacters(in: CharacterSet(charactersIn: ":"))
-            guard let port = UInt16(portString) else { return nil }
-            return RelayEndpoint(host: host, port: port, useTLS: false)
-        }
-        guard let separator = base.lastIndex(of: ":") else { return nil }
-        let host = String(base[..<separator])
-        let portString = String(base[base.index(after: separator)...])
-        guard let port = UInt16(portString) else { return nil }
-        return RelayEndpoint(host: host, port: port, useTLS: false)
+        try? RelayEndpointParser.parse(value, defaultTCPPort: defaultRelayPort)
     }
 
     func chooseTLSIdentityPath() {
@@ -1697,6 +1831,9 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func persistSettings() {
+        guard secretStoreFailure == nil else {
+            return
+        }
         let settings = makePersistedSettings()
         do {
             try RelaySecretStore.save(relayPassword, account: .relayPassword)
@@ -1713,6 +1850,7 @@ final class ServerViewModel: ObservableObject {
                 [.posixPermissions: 0o600],
                 ofItemAtPath: settingsURL.path
             )
+            secretStoreFailure = nil
         } catch {
             // Keep runtime functional even if settings cannot be written.
             logs.append("Settings persistence failed: \(redactedRelayAppError(error, fallback: "Settings could not be written."))")
@@ -1727,7 +1865,16 @@ final class ServerViewModel: ObservableObject {
             return
         }
         do {
+            let values = try settingsURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard values.isRegularFile == true,
+                  let fileSize = values.fileSize,
+                  (1...1_048_576).contains(fileSize) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
             let data = try Data(contentsOf: settingsURL)
+            guard data.count <= 1_048_576 else {
+                throw CocoaError(.fileReadTooLarge)
+            }
             let persisted = try JSONDecoder().decode(PersistedSettings.self, from: data)
             isApplyingPersistedSettings = true
             host = persisted.host
@@ -1787,18 +1934,29 @@ final class ServerViewModel: ObservableObject {
             relayName = persisted.relayName
             operatorNote = persisted.operatorNote
             groupCreationMode = persisted.groupCreationMode
-            groupSecurityModel = persisted.groupSecurityModel ?? .relayBackedPairwise
+            groupSecurityModel = persisted.groupSecurityModel ?? .mlsDerivedTree
             storageMode = persisted.storageMode
             storePath = persisted.storePath
             maxInboxMessages = persisted.maxInboxMessages ?? "1000"
-            relayPassword = (try? RelaySecretStore.load(account: .relayPassword)) ?? ""
-            relayPasswordConfirmation = relayPassword
-            coordinatorRegistrationToken = (try? RelaySecretStore.load(account: .coordinatorRegistrationToken)) ?? ""
-            federationForwardingAuthToken = (try? RelaySecretStore.load(account: .federationForwardingAuthToken)) ?? ""
             communicationMode = persisted.communicationMode
             transportSecurityMode = persisted.transportSecurityMode
             tlsIdentityPKCS12Path = persisted.tlsIdentityPKCS12Path
-            tlsIdentityPassword = (try? RelaySecretStore.load(account: .tlsIdentityPassword)) ?? ""
+            do {
+                relayPassword = try RelaySecretStore.load(account: .relayPassword) ?? ""
+                relayPasswordConfirmation = relayPassword
+                coordinatorRegistrationToken = try RelaySecretStore.load(account: .coordinatorRegistrationToken) ?? ""
+                federationForwardingAuthToken = try RelaySecretStore.load(account: .federationForwardingAuthToken) ?? ""
+                tlsIdentityPassword = try RelaySecretStore.load(account: .tlsIdentityPassword) ?? ""
+                secretStoreFailure = nil
+            } catch {
+                relayPassword = ""
+                relayPasswordConfirmation = ""
+                coordinatorRegistrationToken = ""
+                federationForwardingAuthToken = ""
+                tlsIdentityPassword = ""
+                secretStoreFailure = "Saved relay secrets could not be read from Keychain."
+                logs.append("Saved relay secrets were not loaded; relay startup is blocked until Keychain access is restored.")
+            }
             isApplyingPersistedSettings = false
         } catch {
             isApplyingPersistedSettings = false
