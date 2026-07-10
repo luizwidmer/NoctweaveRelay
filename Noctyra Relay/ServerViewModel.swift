@@ -461,7 +461,7 @@ private enum RelayAttachmentStorageValidationError: LocalizedError {
 enum StartupPermissionStatus: String {
     case idle
     case requesting
-    case granted
+    case ready
     case denied
     case failed
 
@@ -471,8 +471,8 @@ enum StartupPermissionStatus: String {
             return "Not requested"
         case .requesting:
             return "Requesting"
-        case .granted:
-            return "Granted"
+        case .ready:
+            return "Check passed"
         case .denied:
             return "Denied"
         case .failed:
@@ -1988,12 +1988,10 @@ final class ServerViewModel: ObservableObject {
             browser.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    finish(
-                        PermissionProbeResult(
-                            status: .granted,
-                            message: "Local network access is available."
-                        )
-                    )
+                    // NWBrowser becoming ready does not prove that macOS granted
+                    // local-network access. Wait for a browse result callback or
+                    // an explicit failure instead of showing a premature success.
+                    break
                 case .failed(let error):
                     finish(
                         PermissionProbeResult(
@@ -2024,8 +2022,8 @@ final class ServerViewModel: ObservableObject {
                 // A result callback indicates browse permissions are functioning.
                 finish(
                     PermissionProbeResult(
-                        status: .granted,
-                        message: "Local network access is available."
+                        status: .ready,
+                        message: "The local-network browse check completed. macOS may still require confirmation when the relay first communicates with another device."
                     )
                 )
             }
@@ -2069,8 +2067,8 @@ final class ServerViewModel: ObservableObject {
                 case .ready:
                     finish(
                         PermissionProbeResult(
-                            status: .granted,
-                            message: "Incoming listener access is available."
+                            status: .ready,
+                            message: "A local listener was created successfully. Confirm inbound reachability from another device after starting the relay."
                         )
                     )
                 case .failed(let error):

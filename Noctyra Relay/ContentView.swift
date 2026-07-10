@@ -8,10 +8,12 @@ struct ContentView: View {
     @AppStorage("noctyra.server.acceptedPrivacyPolicy.v1") private var acceptedPrivacyPolicy = false
     @AppStorage("noctyra.server.acceptedTermsOfUse.v1") private var acceptedTermsOfUse = false
     @AppStorage("noctyra.server.permissions.preflight.v1") private var completedPermissionPreflight = false
+    @AppStorage("noctyra.server.setupGuide.seen.v1") private var hasSeenSetupGuide = false
     @State private var pendingPrivacyAcceptance = false
     @State private var pendingTermsAcceptance = false
     @State private var showingLegalDetails = false
     @State private var showingDonateSheet = false
+    @State private var showingSetupGuide = false
     @State private var selectedPanel: RelayPanel = .overview
 
     private enum RelayPanel: String, CaseIterable, Identifiable {
@@ -77,7 +79,12 @@ struct ContentView: View {
                     isRunningProbe: model.permissionProbeRunning,
                     canContinue: model.permissionPreflightReady,
                     onRequest: { model.runStartupPermissionProbe() },
-                    onContinue: { completedPermissionPreflight = true }
+                    onContinue: {
+                        completedPermissionPreflight = true
+                        if !hasSeenSetupGuide {
+                            showingSetupGuide = true
+                        }
+                    }
                 )
             }
         }
@@ -100,9 +107,12 @@ struct ContentView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
-                            serverHeader
-                                .id(RelayPanel.overview)
+                            if selectedPanel == .overview {
+                                serverHeader
+                                    .id(RelayPanel.overview)
+                            }
 
+                            if selectedPanel == .profile {
                             serverCard(
                         title: "Relay Profile",
                         subtitle: "Identity, mode, and operator metadata",
@@ -364,8 +374,9 @@ struct ContentView: View {
                     }
                     .disabled(model.isRunning)
                     .id(RelayPanel.profile)
+                            }
 
-                    if model.federationMode != .solo {
+                    if selectedPanel == .federation, model.federationMode != .solo {
                         serverCard(
                             title: model.federationMode == .manual ? "Manual Federation" : "Federation Topology",
                             subtitle: model.federationMode == .manual ? "Operator-managed standard relay node list" : "Runtime-managed relay peers and optional HTTPS source",
@@ -533,6 +544,7 @@ struct ContentView: View {
                         .id(RelayPanel.federation)
                     }
 
+                    if selectedPanel == .storage {
                     serverCard(
                         title: "Storage",
                         subtitle: "Choose persistence strategy for relay state",
@@ -626,7 +638,9 @@ struct ContentView: View {
                     }
                     .disabled(model.isRunning)
                     .id(RelayPanel.storage)
+                    }
 
+                    if selectedPanel == .security {
                     serverCard(
                         title: "Transport Security",
                         subtitle: "Communication protocol, TLS, and relay password",
@@ -714,7 +728,9 @@ struct ContentView: View {
                     }
                     .disabled(model.isRunning)
                     .id(RelayPanel.security)
+                    }
 
+                    if selectedPanel == .logs {
                     serverCard(
                         title: "Relay Logs",
                         subtitle: "Recent runtime events",
@@ -759,6 +775,7 @@ struct ContentView: View {
                         }
                     }
                     .id(RelayPanel.logs)
+                    }
                         }
                         .padding(20)
                         .frame(maxWidth: 980, alignment: .leading)
@@ -783,6 +800,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingDonateSheet) {
             RelayDonationSheetView()
+        }
+        .sheet(isPresented: $showingSetupGuide, onDismiss: {
+            hasSeenSetupGuide = true
+        }) {
+            RelaySetupGuideView {
+                hasSeenSetupGuide = true
+                showingSetupGuide = false
+            }
         }
     }
 
@@ -1005,6 +1030,11 @@ struct ContentView: View {
             .disabled(model.permissionProbeRunning)
 
             Menu {
+                Button {
+                    showingSetupGuide = true
+                } label: {
+                    Label("Setup Guide", systemImage: "questionmark.circle")
+                }
                 Button {
                     showingLegalDetails = true
                 } label: {
@@ -1247,8 +1277,8 @@ struct ContentView: View {
             return "Permissions: Checking"
         }
         switch (model.localNetworkPermissionStatus, model.incomingConnectionPermissionStatus) {
-        case (.granted, .granted):
-            return "Permissions: OK"
+        case (.ready, .ready):
+            return "Network checks passed"
         case (.idle, .idle):
             return "Permissions: Not checked"
         case (.denied, _), (_, .denied):
@@ -1265,7 +1295,7 @@ struct ContentView: View {
             return "clock"
         }
         switch (model.localNetworkPermissionStatus, model.incomingConnectionPermissionStatus) {
-        case (.granted, .granted):
+        case (.ready, .ready):
             return "checkmark.shield.fill"
         case (.denied, _), (_, .denied):
             return "exclamationmark.triangle.fill"
@@ -1281,8 +1311,8 @@ struct ContentView: View {
             return .yellow
         }
         switch (model.localNetworkPermissionStatus, model.incomingConnectionPermissionStatus) {
-        case (.granted, .granted):
-            return .green
+        case (.ready, .ready):
+            return .cyan
         case (.denied, _), (_, .denied):
             return .orange
         case (.failed, _), (_, .failed):
@@ -1537,8 +1567,8 @@ private struct ServerPermissionPreflightView: View {
             VStack(alignment: .leading, spacing: 14) {
                 RelaySheetHero(
                     icon: "checkmark.shield.fill",
-                    title: "Permissions Check",
-                    subtitle: "Confirm networking access before starting the relay."
+                    title: "Network Readiness",
+                    subtitle: "Run local checks before startup. Final inbound reachability must be confirmed from another device."
                 )
 
                 RelaySheetSection(title: "Required Access", icon: "network") {
@@ -1565,7 +1595,7 @@ private struct ServerPermissionPreflightView: View {
                     Button {
                         onRequest()
                     } label: {
-                        Label(isRunningProbe ? "Requesting..." : "Request Permissions", systemImage: "checklist")
+                        Label(isRunningProbe ? "Checking..." : "Run Network Check", systemImage: "checklist")
                     }
                     .relayButton(prominent: true)
                     .disabled(isRunningProbe)
@@ -1622,8 +1652,8 @@ private struct ServerPermissionPreflightView: View {
             return .secondary
         case .requesting:
             return .yellow
-        case .granted:
-            return .green
+        case .ready:
+            return .cyan
         case .denied:
             return .orange
         case .failed:
@@ -1637,13 +1667,85 @@ private struct ServerPermissionPreflightView: View {
             return "circle"
         case .requesting:
             return "clock"
-        case .granted:
+        case .ready:
             return "checkmark.circle.fill"
         case .denied:
             return "exclamationmark.triangle.fill"
         case .failed:
             return "xmark.octagon.fill"
         }
+    }
+}
+
+private struct RelaySetupGuideView: View {
+    let onDone: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            RelaySheetHero(
+                icon: "sparkles",
+                title: "Set Up Your Relay",
+                subtitle: "Start with the defaults, then add federation or advanced storage only when you need them."
+            )
+
+            VStack(spacing: 10) {
+                guideStep(
+                    1,
+                    title: "Choose how clients connect",
+                    detail: "In Transport, use HTTP behind an HTTPS reverse proxy, or native TCP for direct and LAN deployments."
+                )
+                guideStep(
+                    2,
+                    title: "Review identity and storage",
+                    detail: "Relay Profile controls advertised capabilities. Storage controls persistence and attachment retention."
+                )
+                guideStep(
+                    3,
+                    title: "Start and verify",
+                    detail: "Return to Overview, press Start, then add the advertised address in a Noctyra client. The client verifies /info before saving it."
+                )
+                guideStep(
+                    4,
+                    title: "Add federation later",
+                    detail: "Solo mode needs no federation setup. Manual, curated, and open networks expose their own panel when selected."
+                )
+            }
+
+            HStack {
+                Text("You can reopen this guide from More → Setup Guide.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Open Control Plane") {
+                    onDone()
+                }
+                .relayButton(prominent: true)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 580, idealWidth: 680, maxWidth: 720)
+        .background(PremiumRelayBackground())
+    }
+
+    private func guideStep(_ number: Int, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.cyan)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.cyan.opacity(0.14)))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .premiumSurface(cornerRadius: 14, tintOpacity: 0.10)
     }
 }
 
