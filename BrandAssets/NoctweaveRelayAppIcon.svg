@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Noctweave Relay Open Core app icon</title>
+  <desc id="desc">Four solid control planes surround an uninterrupted central void.</desc>
+  <defs>
+    <linearGradient id="tile" x1="152" y1="118" x2="872" y2="906" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2A1820"/>
+      <stop offset="1" stop-color="#120C10"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="224" fill="url(#tile)"/>
+  <rect x="6" y="6" width="1012" height="1012" rx="218" fill="none" stroke="#6E3A40" stroke-width="12"/>
+
+  <g transform="translate(77 77) scale(3.4)">
+    <path fill="#C96A61" d="M34 34h96v70h-26v26H34V34Z"/>
+    <path fill="#FAF3EA" d="M146 34h76v96h-54v-26h-22V34Z"/>
+    <path fill="#EBC7AF" d="M34 146h70v22h26v54H34v-76Z"/>
+    <path fill="#922D35" d="M168 146h54v76h-76v-54h22v-22Z"/>
+  </g>
+</svg>
