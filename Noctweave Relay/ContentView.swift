@@ -5,10 +5,10 @@ import Combine
 
 struct ContentView: View {
     @StateObject private var model = ServerViewModel()
-    @AppStorage("noctyra.server.acceptedPrivacyPolicy.v1") private var acceptedPrivacyPolicy = false
-    @AppStorage("noctyra.server.acceptedTermsOfUse.v1") private var acceptedTermsOfUse = false
-    @AppStorage("noctyra.server.permissions.preflight.v1") private var completedPermissionPreflight = false
-    @AppStorage("noctyra.server.setupGuide.seen.v1") private var hasSeenSetupGuide = false
+    @AppStorage("noctweave.server.acceptedPrivacyPolicy.v1") private var acceptedPrivacyPolicy = false
+    @AppStorage("noctweave.server.acceptedTermsOfUse.v1") private var acceptedTermsOfUse = false
+    @AppStorage("noctweave.server.permissions.preflight.v1") private var completedPermissionPreflight = false
+    @AppStorage("noctweave.server.setupGuide.seen.v1") private var hasSeenSetupGuide = false
     @State private var pendingPrivacyAcceptance = false
     @State private var pendingTermsAcceptance = false
     @State private var showingLegalDetails = false
@@ -333,36 +333,6 @@ struct ContentView: View {
                              : "No wake policy is advertised. Clients fall back to local polling defaults.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        HStack {
-                            Text("Group Creation")
-                            Spacer()
-                            Picker("Group Creation", selection: $model.groupCreationMode) {
-                                ForEach(GroupCreationMode.allCases, id: \.self) { mode in
-                                    Text(mode.rawValue.capitalized).tag(mode)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 220)
-                        }
-                        Text("Controls whether this relay accepts group registry creation requests.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            Text("Group Security Model")
-                            Spacer()
-                            Picker("Group Security Model", selection: $model.groupSecurityModel) {
-                                ForEach(GroupSecurityModel.allCases, id: \.self) { model in
-                                    Text(model.rawValue).tag(model)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 220)
-                        }
-                        Text(model.groupSecurityModel == .mlsDerivedTree
-                             ? "Advertises the MLS-derived target model. Enable only with compatible group clients."
-                             : "Current deployed group model: relay-backed membership with end-to-end encrypted pairwise delivery.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
                         Divider().opacity(0.2)
                         TextField("Relay Name (optional)", text: $model.relayName)
                             .relayFieldStyle()
@@ -415,12 +385,6 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
 
-                            Divider().opacity(0.2)
-                            SecureField("Inter-relay forwarding token (optional)", text: $model.federationForwardingAuthToken)
-                                .relayFieldStyle()
-                            Text("Used only for relay-to-relay forwarding authentication. Client passwords are never forwarded upstream.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
                             if model.federationMode != .manual {
                                 TextField("Coordinator endpoints (comma-separated host:port or https URL)", text: $model.federationCoordinatorList)
                                     .relayFieldStyle()
@@ -497,7 +461,7 @@ struct ContentView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             } else {
-                                Text("Manual mode forwards only to nodes in this list after they report federation mode manual and relay kind standard.")
+                                Text("Manual mode publishes only operator-reviewed relay descriptors from this list.")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -512,7 +476,7 @@ struct ContentView: View {
                                         .relayFieldStyle()
                                         .frame(width: 92)
                                 }
-                                Text("Strict policy enforces allowlist membership plus coordinator directory quorum before relay-to-relay forwarding.")
+                                Text("Strict policy requires allowlist membership plus coordinator directory quorum for operator-plane discovery.")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -526,10 +490,6 @@ struct ContentView: View {
                                     federationDetailRow("Coordinators", value: model.federationCoordinatorList)
                                     federationDetailRow("Registration Auth", value: model.coordinatorRegistrationToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Disabled" : "Token required")
                                 }
-                                federationDetailRow(
-                                    "Inter-relay Auth",
-                                    value: model.federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Disabled" : "Token configured"
-                                )
                                 if model.federationMode == .open {
                                     federationDetailRow("DHT Node", value: model.openFederationDHTEnabled ? "Enabled" : "Disabled")
                                     federationDetailRow("PEX Limit", value: model.relayPeerExchangeLimit)
@@ -571,22 +531,9 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Text("RAM mode is ephemeral. Queues and prekeys are lost when the relay stops.")
+                            Text("RAM mode is ephemeral. Relay state is lost when the relay stops.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Max Inbox Messages")
-                                    .font(.subheadline.weight(.semibold))
-                                Text("Caps queued encrypted envelopes per inbox before the relay rejects new deliveries.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            TextField("1000", text: $model.maxInboxMessages)
-                                .relayFieldStyle()
-                                .frame(width: 92)
                         }
                         Divider()
                             .overlay(.white.opacity(0.08))
@@ -757,7 +704,7 @@ struct ContentView: View {
                                                         LinearGradient(
                                                             colors: [
                                                                 Color.black.opacity(0.28),
-                                                                Color.indigo.opacity(0.14)
+                                                                Color.noctweaveWine.opacity(0.14)
                                                             ],
                                                             startPoint: .topLeading,
                                                             endPoint: .bottomTrailing
@@ -816,9 +763,9 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(Color.noctweaveCoral)
                 Text(model.relayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "Noctyra Relay"
+                    ? "Noctweave Relay"
                     : model.relayName)
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
@@ -847,7 +794,7 @@ struct ContentView: View {
                             .padding(.vertical, 9)
                             .background(
                                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                    .fill(selectedPanel == panel ? Color.indigo.opacity(0.34) : Color.clear)
+                                    .fill(selectedPanel == panel ? Color.noctweaveWine.opacity(0.34) : Color.clear)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 11, style: .continuous)
                                             .stroke(selectedPanel == panel ? Color.white.opacity(0.14) : Color.clear, lineWidth: 0.8)
@@ -891,7 +838,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Noctyra Relay", systemImage: "dot.radiowaves.left.and.right")
+                    Label("Noctweave Relay", systemImage: "dot.radiowaves.left.and.right")
                         .font(.title3.weight(.semibold))
                     Text("Control plane for transport, federation, storage, and security.")
                         .font(.caption)
@@ -1329,7 +1276,7 @@ private struct PremiumRelayBackground: View {
             LinearGradient(
                 colors: [
                     Color.black.opacity(0.94),
-                    Color.indigo.opacity(0.26),
+                    Color.noctweaveWine.opacity(0.26),
                     Color.black.opacity(0.90)
                 ],
                 startPoint: .topLeading,
@@ -1337,7 +1284,7 @@ private struct PremiumRelayBackground: View {
             )
             RadialGradient(
                 colors: [
-                    Color.cyan.opacity(0.16),
+                    Color.noctweaveCoral.opacity(0.16),
                     Color.clear
                 ],
                 center: .topLeading,
@@ -1346,7 +1293,7 @@ private struct PremiumRelayBackground: View {
             )
             RadialGradient(
                 colors: [
-                    Color.blue.opacity(0.12),
+                    Color.noctweaveSand.opacity(0.12),
                     Color.clear
                 ],
                 center: .bottomTrailing,
@@ -1373,7 +1320,7 @@ private struct RelayPremiumSurface: ViewModifier {
                                 LinearGradient(
                                     colors: [
                                         Color.black.opacity(0.24),
-                                        Color.indigo.opacity(tintOpacity),
+                                        Color.noctweaveWine.opacity(tintOpacity),
                                         Color.black.opacity(0.16)
                                     ],
                                     startPoint: .topLeading,
@@ -1409,12 +1356,12 @@ private struct RelayGlassButtonStyle: ButtonStyle {
                                 LinearGradient(
                                     colors: prominent
                                         ? [
-                                            Color.indigo.opacity(configuration.isPressed ? 0.48 : 0.38),
-                                            Color.cyan.opacity(configuration.isPressed ? 0.24 : 0.18)
+                                            Color.noctweaveWine.opacity(configuration.isPressed ? 0.48 : 0.38),
+                                            Color.noctweaveCoral.opacity(configuration.isPressed ? 0.24 : 0.18)
                                         ]
                                         : [
                                             Color.white.opacity(configuration.isPressed ? 0.10 : 0.05),
-                                            Color.indigo.opacity(configuration.isPressed ? 0.15 : 0.09)
+                                            Color.noctweaveWine.opacity(configuration.isPressed ? 0.15 : 0.09)
                                         ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -1425,14 +1372,14 @@ private struct RelayGlassButtonStyle: ButtonStyle {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .stroke(
                                 isHovering
-                                    ? Color.cyan.opacity(prominent ? 0.56 : 0.34)
+                                    ? Color.noctweaveCoral.opacity(prominent ? 0.56 : 0.34)
                                     : Color.white.opacity(prominent ? 0.20 : 0.12),
                                 lineWidth: isHovering ? 1.0 : 0.8
                             )
                     )
             )
             .shadow(
-                color: Color.cyan.opacity(isHovering && isEnabled ? 0.18 : 0.06),
+                color: Color.noctweaveCoral.opacity(isHovering && isEnabled ? 0.18 : 0.06),
                 radius: isHovering ? 10 : 4,
                 y: isHovering ? 4 : 2
             )
@@ -1519,9 +1466,9 @@ private struct RelaySheetHero: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(Color.noctweaveCoral)
                 .frame(width: 44, height: 44)
-                .background(Color.cyan.opacity(0.13), in: Circle())
+                .background(Color.noctweaveCoral.opacity(0.13), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.title3.weight(.semibold))
@@ -1702,7 +1649,7 @@ private struct RelaySetupGuideView: View {
                 guideStep(
                     3,
                     title: "Start and verify",
-                    detail: "Return to Overview, press Start, then add the advertised address in a Noctyra client. The client verifies /info before saving it."
+                    detail: "Return to Overview, press Start, then add the advertised address in a Noctweave client. The client verifies /info before saving it."
                 )
                 guideStep(
                     4,
@@ -1731,9 +1678,9 @@ private struct RelaySetupGuideView: View {
         HStack(alignment: .top, spacing: 12) {
             Text("\(number)")
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(Color.noctweaveCoral)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(Color.cyan.opacity(0.14)))
+                .background(Circle().fill(Color.noctweaveCoral.opacity(0.14)))
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
@@ -1861,9 +1808,9 @@ private struct ServerLegalDocumentView: View {
 }
 
 private let relayDonationProductIDs: [String] = [
-    "com.luizwidmer.noctyrarelay.donate.small",
-    "com.luizwidmer.noctyrarelay.donate.medium",
-    "com.luizwidmer.noctyrarelay.donate.large"
+    "com.luizwidmer.noctweaverelay.donate.small",
+    "com.luizwidmer.noctweaverelay.donate.medium",
+    "com.luizwidmer.noctweaverelay.donate.large"
 ]
 
 @MainActor
@@ -1898,7 +1845,7 @@ private final class RelayDonationStore: ObservableObject {
                 switch verification {
                 case .verified(let transaction):
                     await transaction.finish()
-                    statusMessage = "Thanks for supporting Noctyra Relay."
+                    statusMessage = "Thanks for supporting Noctweave Relay."
                 case .unverified(_, let error):
                     statusMessage = "Purchase could not be verified: \(safeStoreKitErrorDescription(error, fallback: "Purchase verification failed."))"
                 }
@@ -1967,7 +1914,7 @@ private struct RelayDonationSheetView: View {
                     VStack(spacing: 14) {
                         RelaySheetHero(
                             icon: "heart.fill",
-                            title: "Support Noctyra Relay",
+                            title: "Support Noctweave Relay",
                             subtitle: "Fund continued relay maintenance and security work."
                         )
 

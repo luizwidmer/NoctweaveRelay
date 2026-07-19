@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Noctyra Relay</string>
+	<string>Noctweave Relay</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,9 +26,9 @@
 	<string>public.app-category.utilities</string>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_noctyra._tcp</string>
+		<string>_noctweave._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Noctyra Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.</string>
+	<string>Noctweave Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.</string>
 </dict>
 </plist>

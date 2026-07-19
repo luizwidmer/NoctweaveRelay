@@ -1,8 +1,8 @@
-# Noctyra Relay Operator Guide
+# Noctweave Relay Operator Guide
 
-This document explains relay types, federation setup, and runtime behavior in the Noctyra Relay app.
+This document explains relay types, federation setup, and runtime behavior in the Noctweave Relay app.
 
-For the complete Noctweave federation wire protocol, JSON request examples, endpoint parsing rules, and Linux relay recipes, see `Noctweave Documentation/federation_protocol_and_operations.md`.
+For the complete Noctweave federation wire protocol, JSON request examples, endpoint parsing rules, and Linux relay recipes, see `../NoctweaveDocumentation/federation_protocol_and_operations.md`.
 
 ## 1. Quick Setup
 1. Set `Host` and `Port`.
@@ -23,34 +23,24 @@ For the complete Noctweave federation wire protocol, JSON request examples, endp
 - `privateRelay`: restricted/private deployment.
 - `coordinator`: directory-only node (no client inbox role; advertises relay directory + health view).
 
-Important: kind is descriptive metadata. Forwarding rules are enforced by federation mode and access control.
+Important: kind is descriptive metadata. Federation is an operator-plane discovery and coordination mechanism; it is not a user-message forwarding path.
 
 ## 3. Federation Modes (What Is Enforced)
 - `solo`
-  - No relay-to-relay forwarding.
-  - Any request with a destination relay is rejected.
+  - No federation discovery or coordination.
 - `manual`
-  - Forwarding requires the destination endpoint in the operator-managed node list.
-  - Destination relay must report `manual` mode.
-  - Destination relay must report relay kind `standard`.
-  - If federation name is set, destination name must match.
+  - Publishes only operator-reviewed relay descriptors from the local node list.
+  - Descriptors must report `manual` mode and a matching federation name when one is configured.
   - No coordinator, DHT, quorum, or peer exchange is used.
-  - The relay may start with an empty node list; forwarding fails closed until peers are added.
+  - The relay may start with an empty node list.
 - `curated`
-  - Strict policy is enabled by default.
-  - Forwarding requires:
-    - destination endpoint in allowlist
-    - destination seen as healthy by coordinator quorum
-    - signed coordinator directory when `Require Signed Directory` is enabled
-  - Destination relay must report `curated` mode.
-  - If federation name is set, destination name must match.
+  - Uses allow lists, coordinator quorum, freshness policy, and optional signed directories to publish a bounded relay directory.
+  - Descriptors must report `curated` mode and a matching federation name when one is configured.
 - `open`
-  - Forwarding allowed without allowlist.
-  - Destination relay must report `open` mode.
-  - If federation name is set, destination name must match.
-  - Open mode cannot use an allowlist.
+  - Uses bounded signed discovery records, host quotas, public-endpoint validation, and peer-hint limits.
+  - Descriptors must report `open` mode and a matching federation name when one is configured.
 
-Note: `manual`, `curated`, and `open` are available in the relay app UI and via federation source files.
+Clients learn destination relays from relationship-encrypted route sets and submit ciphertext directly to those opaque routes. Federation requests never carry relationship events or opaque-route packets. `manual`, `curated`, and `open` are available in the relay app UI and via federation source files.
 
 ## 4. Federation Setup from HTTPS JSON
 In `Relay Configuration`, set a federation mode other than `solo`, then use `Federation Source (HTTPS)` and click `Fetch Federation`.
@@ -70,7 +60,7 @@ Example:
 ```json
 {
   "mode": "curated",
-  "name": "Noctyra-Curated",
+  "name": "Noctweave-Curated",
   "description": "Trusted relay mesh",
   "allowlist": [
     "relay-a.example.org:9339",
@@ -146,8 +136,8 @@ When coordinator endpoints are configured:
 - Coordinators maintain a live directory (healthy relays only).
 - Coordinators can return signed directory snapshots (`federationSnapshot`) with freshness windows.
 - Clients can keep a direct connection to their home relay and also query coordinator directories to refresh relay lists/health.
-- Curated relay-to-relay forwarding can use coordinator directory lookups as an allow source only when strict policy is disabled.
-- In strict mode, static allowlist membership is always mandatory.
+- Curated relay discovery can use coordinator directory lookups as a directory source only when strict policy is disabled.
+- In strict mode, static allowlist membership remains mandatory for published descriptors.
 
 Open federation discovery acceleration:
 - Non-coordinator open relays may advertise peer hints (`knownOpenPeers`) in relay info.

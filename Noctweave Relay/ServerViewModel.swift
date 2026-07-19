@@ -68,7 +68,7 @@ private final class RelayIPFSAttachmentBlobStore: AttachmentBlobStore {
         guard !data.isEmpty, data.count <= Self.maximumBlobBytes else {
             throw AttachmentBlobStoreError.uploadFailed("Attachment chunk size is invalid")
         }
-        let boundary = "noctyra-\(UUID().uuidString)"
+        let boundary = "noctweave-\(UUID().uuidString)"
         var body = Data()
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(attachmentId.uuidString)-\(chunkIndex).bin\"\r\n".utf8))
@@ -537,12 +537,11 @@ private enum RelaySecretStore {
     enum Account: String {
         case relayPassword = "relay-password"
         case coordinatorRegistrationToken = "coordinator-registration-token"
-        case federationForwardingAuthToken = "federation-forwarding-auth-token"
         case tlsIdentityPassword = "tls-identity-password"
         case coordinatorDirectorySigningKey = "coordinator-directory-signing-key"
     }
 
-    private static let service = "com.noctyra.relay.configuration"
+    private static let service = "com.noctweave.relay.configuration"
 
     static func load(account: Account) throws -> String? {
         let query: [String: Any] = [
@@ -617,7 +616,6 @@ private enum RelaySecretStore {
     enum Account {
         case relayPassword
         case coordinatorRegistrationToken
-        case federationForwardingAuthToken
         case tlsIdentityPassword
     }
 
@@ -683,15 +681,11 @@ final class ServerViewModel: ObservableObject {
     @Published var wakeLongPollTimeoutSeconds: String = "60"
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
-    @Published var groupCreationMode: GroupCreationMode = .allowed
-    @Published var groupSecurityModel: GroupSecurityModel = .mlsDerivedTree
     @Published var storageMode: RelayStorageMode = .disk
     @Published var storePath: String = ""
-    @Published var maxInboxMessages: String = "1000"
     @Published var relayPassword: String = ""
     @Published var relayPasswordConfirmation: String = ""
     @Published var coordinatorRegistrationToken: String = ""
-    @Published var federationForwardingAuthToken: String = ""
     @Published var communicationMode: RelayCommunicationMode = .tcp
     @Published var transportSecurityMode: RelayTransportSecurityMode = .plainTCP
     @Published var tlsIdentityPKCS12Path: String = ""
@@ -726,7 +720,7 @@ final class ServerViewModel: ObservableObject {
 
     init() {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NoctyraRelay", isDirectory: true)
+            .appendingPathComponent("NoctweaveRelay", isDirectory: true)
         let storeURL = directory.appendingPathComponent("relay_store.sqlite")
         self.defaultStoreURL = storeURL
         self.settingsURL = directory.appendingPathComponent("relay_settings.json")
@@ -737,8 +731,7 @@ final class ServerViewModel: ObservableObject {
             storeURL: storeURL,
             temporalBucketSeconds: bootstrapConfiguration.temporalBucketSeconds,
             temporalBucketScheduleSeconds: bootstrapConfiguration.temporalBucketScheduleSeconds,
-            attachmentBlobStore: nil,
-            maxInboxMessages: 1_000
+            attachmentBlobStore: nil
         )
         self.server = RelayServer(store: store, configuration: bootstrapConfiguration)
         server.onEvent = { [weak self] event in
@@ -827,11 +820,6 @@ final class ServerViewModel: ObservableObject {
             lastError = "Curated federation requires a coordinator registration token of at least 16 bytes."
             return
         }
-        let forwardingToken = federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !forwardingToken.isEmpty, !(16...4_096).contains(forwardingToken.utf8.count) {
-            lastError = "Inter-relay forwarding token must contain 16 to 4096 UTF-8 bytes."
-            return
-        }
         let attachmentBlobStore: AttachmentBlobStore?
         do {
             attachmentBlobStore = try makeAttachmentBlobStore()
@@ -843,8 +831,7 @@ final class ServerViewModel: ObservableObject {
             storeURL: resolvedStoreURL,
             temporalBucketSeconds: configuration.temporalBucketSeconds,
             temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds,
-            attachmentBlobStore: attachmentBlobStore,
-            maxInboxMessages: parsedMaxInboxMessages
+            attachmentBlobStore: attachmentBlobStore
         )
         server = RelayServer(store: store, configuration: configuration)
         server.onEvent = { [weak self] event in
@@ -902,10 +889,6 @@ final class ServerViewModel: ObservableObject {
             appendLog("Server started on \(host):\(port)")
         case .stopped:
             appendLog("Server stopped")
-        case .delivered(_, let storedCount):
-            appendLog("Accepted encrypted delivery (\(storedCount) queued)")
-        case .fetched(_, let count):
-            appendLog("Returned \(count) encrypted envelope(s)")
         case .error(let message):
             appendLog("Error: \(redactedRelayMessage(message, fallback: "Relay operation failed."))")
         }
@@ -1027,7 +1010,6 @@ final class ServerViewModel: ObservableObject {
         let note = operatorNote.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = relayPassword.trimmingCharacters(in: .whitespacesAndNewlines)
         let registrationToken = coordinatorRegistrationToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        let forwardingToken = federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let tlsPath = tlsIdentityPKCS12Path.trimmingCharacters(in: .whitespacesAndNewlines)
         let tlsPassword = tlsIdentityPassword.trimmingCharacters(in: .whitespacesAndNewlines)
         let minutes = max(1, Int(temporalBucketMinutes) ?? 5)
@@ -1112,11 +1094,8 @@ final class ServerViewModel: ObservableObject {
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
-            groupCreationMode: groupCreationMode,
-            groupSecurityModel: groupSecurityModel,
             accessPassword: password.isEmpty ? nil : password,
             coordinatorRegistrationToken: registrationToken.isEmpty ? nil : registrationToken,
-            federationForwardingAuthToken: forwardingToken.isEmpty ? nil : forwardingToken,
             tlsEnabled: transportSecurityMode.usesRelayTLS,
             advertisedTLSEnabled: transportSecurityMode == .reverseProxyTLS ? true : nil,
             transport: communicationMode.relayTransport,
@@ -1146,23 +1125,24 @@ final class ServerViewModel: ObservableObject {
         }
         if let encoded = try? RelaySecretStore.load(account: .coordinatorDirectorySigningKey),
            let existing = Data(base64Encoded: encoded),
-           existing.count == 32 {
-            return existing
+           let validated = try? FederationDirectorySignature.privateKeyDataThrowing(from: existing) {
+            return validated
         }
-        let generated = FederationDirectorySignature.privateKeyData(from: nil)
         do {
+            let generated = try FederationDirectorySignature.privateKeyDataThrowing(from: nil)
             try RelaySecretStore.save(
                 generated.base64EncodedString(),
                 account: .coordinatorDirectorySigningKey
             )
+            return generated
         } catch {
             appendRedactedLog(
-                "Failed to persist coordinator signing key",
+                "Failed to create or persist coordinator signing key",
                 error: error,
                 fallback: "Secret storage is unavailable."
             )
+            return nil
         }
-        return generated
     }
 
     private func resolvedStoreURL() -> URL? {
@@ -1258,10 +1238,6 @@ final class ServerViewModel: ObservableObject {
         return "Volume: \(volumeName) | File: \(url.path)"
     }
 
-    private var parsedMaxInboxMessages: Int {
-        max(1, Int(maxInboxMessages.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 1_000)
-    }
-
     var attachmentStorageDescription: String {
         guard attachmentsEnabled else {
             return "Attachments are disabled; blob storage is unused."
@@ -1320,15 +1296,12 @@ final class ServerViewModel: ObservableObject {
         Task {
             let started = Date()
             do {
-                let response = try await RelayClient(
-                    endpoint: endpoint,
-                    authToken: federationForwardingAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                )
+                let response = try await RelayClient(endpoint: endpoint)
                 .send(.health(), timeout: 5)
                 let latencyMs = max(0, Int(Date().timeIntervalSince(started) * 1_000))
-                guard response.type == .ok else {
+                guard response.status == .success else {
                     let message = redactedRelayMessage(
-                        response.error ?? "Unexpected response: \(response.type.rawValue)",
+                        response.error?.message ?? "Unexpected response: \(response.status.rawValue)",
                         fallback: "Federated relay returned an unexpected response."
                     )
                     manualFederationHealth[trimmed] = .failed(message: message, checkedAt: Date())
@@ -1553,7 +1526,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     private static func makeSoftwareVersion() -> String {
-        let base = "Noctyra Relay"
+        let base = "Noctweave Relay"
         guard let info = Bundle.main.infoDictionary else {
             return base
         }
@@ -1576,8 +1549,7 @@ final class ServerViewModel: ObservableObject {
         store = RelayStore(
             storeURL: resolvedStoreURL(),
             temporalBucketSeconds: configuration.temporalBucketSeconds,
-            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds,
-            maxInboxMessages: parsedMaxInboxMessages
+            temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds
         )
         server = RelayServer(store: store, configuration: configuration)
         server.onEvent = { [weak self] event in
@@ -1640,11 +1612,8 @@ final class ServerViewModel: ObservableObject {
         var wakeLongPollTimeoutSeconds: String?
         var relayName: String
         var operatorNote: String
-        var groupCreationMode: GroupCreationMode
-        var groupSecurityModel: GroupSecurityModel?
         var storageMode: RelayStorageMode
         var storePath: String
-        var maxInboxMessages: String?
         var communicationMode: RelayCommunicationMode
         var transportSecurityMode: RelayTransportSecurityMode
         var tlsIdentityPKCS12Path: String
@@ -1704,15 +1673,11 @@ final class ServerViewModel: ObservableObject {
             $wakeLongPollTimeoutSeconds.map { _ in () }.eraseToAnyPublisher(),
             $relayName.map { _ in () }.eraseToAnyPublisher(),
             $operatorNote.map { _ in () }.eraseToAnyPublisher(),
-            $groupCreationMode.map { _ in () }.eraseToAnyPublisher(),
-            $groupSecurityModel.map { _ in () }.eraseToAnyPublisher(),
             $storageMode.map { _ in () }.eraseToAnyPublisher(),
             $storePath.map { _ in () }.eraseToAnyPublisher(),
-            $maxInboxMessages.map { _ in () }.eraseToAnyPublisher(),
             $relayPassword.map { _ in () }.eraseToAnyPublisher(),
             $relayPasswordConfirmation.map { _ in () }.eraseToAnyPublisher(),
             $coordinatorRegistrationToken.map { _ in () }.eraseToAnyPublisher(),
-            $federationForwardingAuthToken.map { _ in () }.eraseToAnyPublisher(),
             $communicationMode.map { _ in () }.eraseToAnyPublisher(),
             $transportSecurityMode.map { _ in () }.eraseToAnyPublisher(),
             $tlsIdentityPKCS12Path.map { _ in () }.eraseToAnyPublisher(),
@@ -1749,8 +1714,7 @@ final class ServerViewModel: ObservableObject {
             $openFederationDHTMaxQueryRecords.map { _ in () }.eraseToAnyPublisher(),
             $relayPeerExchangeLimit.map { _ in () }.eraseToAnyPublisher(),
             $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
-            $coordinatorRegistrationToken.map { _ in () }.eraseToAnyPublisher(),
-            $federationForwardingAuthToken.map { _ in () }.eraseToAnyPublisher()
+            $coordinatorRegistrationToken.map { _ in () }.eraseToAnyPublisher()
         ]
 
         Publishers.MergeMany(federationObserved)
@@ -1819,11 +1783,8 @@ final class ServerViewModel: ObservableObject {
             wakeLongPollTimeoutSeconds: wakeLongPollTimeoutSeconds,
             relayName: relayName,
             operatorNote: operatorNote,
-            groupCreationMode: groupCreationMode,
-            groupSecurityModel: groupSecurityModel,
             storageMode: storageMode,
             storePath: storePath,
-            maxInboxMessages: maxInboxMessages,
             communicationMode: communicationMode,
             transportSecurityMode: transportSecurityMode,
             tlsIdentityPKCS12Path: tlsIdentityPKCS12Path
@@ -1838,7 +1799,6 @@ final class ServerViewModel: ObservableObject {
         do {
             try RelaySecretStore.save(relayPassword, account: .relayPassword)
             try RelaySecretStore.save(coordinatorRegistrationToken, account: .coordinatorRegistrationToken)
-            try RelaySecretStore.save(federationForwardingAuthToken, account: .federationForwardingAuthToken)
             try RelaySecretStore.save(tlsIdentityPassword, account: .tlsIdentityPassword)
             let directory = settingsURL.deletingLastPathComponent()
             if !FileManager.default.fileExists(atPath: directory.path) {
@@ -1933,11 +1893,8 @@ final class ServerViewModel: ObservableObject {
             wakeLongPollTimeoutSeconds = persisted.wakeLongPollTimeoutSeconds ?? "60"
             relayName = persisted.relayName
             operatorNote = persisted.operatorNote
-            groupCreationMode = persisted.groupCreationMode
-            groupSecurityModel = persisted.groupSecurityModel ?? .mlsDerivedTree
             storageMode = persisted.storageMode
             storePath = persisted.storePath
-            maxInboxMessages = persisted.maxInboxMessages ?? "1000"
             communicationMode = persisted.communicationMode
             transportSecurityMode = persisted.transportSecurityMode
             tlsIdentityPKCS12Path = persisted.tlsIdentityPKCS12Path
@@ -1945,14 +1902,12 @@ final class ServerViewModel: ObservableObject {
                 relayPassword = try RelaySecretStore.load(account: .relayPassword) ?? ""
                 relayPasswordConfirmation = relayPassword
                 coordinatorRegistrationToken = try RelaySecretStore.load(account: .coordinatorRegistrationToken) ?? ""
-                federationForwardingAuthToken = try RelaySecretStore.load(account: .federationForwardingAuthToken) ?? ""
                 tlsIdentityPassword = try RelaySecretStore.load(account: .tlsIdentityPassword) ?? ""
                 secretStoreFailure = nil
             } catch {
                 relayPassword = ""
                 relayPasswordConfirmation = ""
                 coordinatorRegistrationToken = ""
-                federationForwardingAuthToken = ""
                 tlsIdentityPassword = ""
                 secretStoreFailure = "Saved relay secrets could not be read from Keychain."
                 logs.append("Saved relay secrets were not loaded; relay startup is blocked until Keychain access is restored.")
@@ -1974,9 +1929,9 @@ final class ServerViewModel: ObservableObject {
 
     private static func probeLocalNetworkPermission(timeoutSeconds: TimeInterval = 4.0) async -> PermissionProbeResult {
         await withCheckedContinuation { continuation in
-            let queue = DispatchQueue(label: "NoctyraRelay.LocalNetworkPermission")
-            let probeServiceName = "Noctyra permission check \(UUID().uuidString)"
-            let descriptor = NWBrowser.Descriptor.bonjour(type: "_noctyra._tcp", domain: nil)
+            let queue = DispatchQueue(label: "NoctweaveRelay.LocalNetworkPermission")
+            let probeServiceName = "Noctweave permission check \(UUID().uuidString)"
+            let descriptor = NWBrowser.Descriptor.bonjour(type: "_noctweave._tcp", domain: nil)
             let browser = NWBrowser(for: descriptor, using: .tcp)
             let gate = PermissionProbeGate()
             let listener: NWListener
@@ -1984,7 +1939,7 @@ final class ServerViewModel: ObservableObject {
                 listener = try NWListener(using: .tcp, on: .any)
                 listener.service = NWListener.Service(
                     name: probeServiceName,
-                    type: "_noctyra._tcp"
+                    type: "_noctweave._tcp"
                 )
             } catch {
                 continuation.resume(
@@ -2090,7 +2045,7 @@ final class ServerViewModel: ObservableObject {
 
     private static func probeIncomingConnectionPermission(timeoutSeconds: TimeInterval = 3.0) async -> PermissionProbeResult {
         await withCheckedContinuation { continuation in
-            let queue = DispatchQueue(label: "NoctyraRelay.IncomingPermission")
+            let queue = DispatchQueue(label: "NoctweaveRelay.IncomingPermission")
             let gate = PermissionProbeGate()
             let listener: NWListener
             do {

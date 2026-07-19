@@ -11,13 +11,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		251C71012F00A529007DB82C /* Noctyra Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Noctyra Relay.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		251C71012F00A529007DB82C /* Noctweave Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Noctweave Relay.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		251C71032F00A529007DB82C /* Noctyra Relay */ = {
+		251C71032F00A529007DB82C /* Noctweave Relay */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Noctyra Relay";
+			path = "Noctweave Relay";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -37,7 +37,7 @@
 		251C70F82F00A529007DB82C = {
 			isa = PBXGroup;
 			children = (
-				251C71032F00A529007DB82C /* Noctyra Relay */,
+				251C71032F00A529007DB82C /* Noctweave Relay */,
 				251C71022F00A529007DB82C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -45,7 +45,7 @@
 		251C71022F00A529007DB82C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				251C71012F00A529007DB82C /* Noctyra Relay.app */,
+				251C71012F00A529007DB82C /* Noctweave Relay.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -53,9 +53,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		251C71002F00A529007DB82C /* Noctyra Relay */ = {
+		251C71002F00A529007DB82C /* Noctweave Relay */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 251C710C2F00A529007DB82C /* Build configuration list for PBXNativeTarget "Noctyra Relay" */;
+			buildConfigurationList = 251C710C2F00A529007DB82C /* Build configuration list for PBXNativeTarget "Noctweave Relay" */;
 			buildPhases = (
 				251C70FD2F00A529007DB82C /* Sources */,
 				251C70FE2F00A529007DB82C /* Frameworks */,
@@ -66,14 +66,14 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				251C71032F00A529007DB82C /* Noctyra Relay */,
+				251C71032F00A529007DB82C /* Noctweave Relay */,
 			);
-			name = "Noctyra Relay";
+			name = "Noctweave Relay";
 			packageProductDependencies = (
 				E1F2A3B405162738495A6B7D /* NoctweaveCore */,
 			);
-			productName = "Noctyra Relay";
-			productReference = 251C71012F00A529007DB82C /* Noctyra Relay.app */;
+			productName = "Noctweave Relay";
+			productReference = 251C71012F00A529007DB82C /* Noctweave Relay.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -91,7 +91,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "Noctyra Relay" */;
+			buildConfigurationList = 251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "Noctweave Relay" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -108,7 +108,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				251C71002F00A529007DB82C /* Noctyra Relay */,
+				251C71002F00A529007DB82C /* Noctweave Relay */,
 			);
 		};
 /* End PBXProject section */
@@ -174,6 +174,7 @@
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -194,7 +195,6 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
-				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -241,6 +241,7 @@
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -254,7 +255,6 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
-				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -267,7 +267,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 9MY7SXN56X;
 				ENABLE_APP_SANDBOX = YES;
@@ -287,13 +287,15 @@
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Noctweave Relay";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctyraRelay;
-				PRODUCT_NAME = "Noctyra Relay";
+				MARKETING_VERSION = 1.0.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctweaveRelay;
+				PRODUCT_NAME = "Noctweave Relay";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -311,7 +313,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 9MY7SXN56X;
 				ENABLE_APP_SANDBOX = YES;
@@ -331,13 +333,15 @@
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Noctweave Relay";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctyraRelay;
-				PRODUCT_NAME = "Noctyra Relay";
+				MARKETING_VERSION = 1.0.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctweaveRelay;
+				PRODUCT_NAME = "Noctweave Relay";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -351,7 +355,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "Noctyra Relay" */ = {
+		251C70FC2F00A529007DB82C /* Build configuration list for PBXProject "Noctweave Relay" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				251C710A2F00A529007DB82C /* Debug */,
@@ -360,7 +364,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		251C710C2F00A529007DB82C /* Build configuration list for PBXNativeTarget "Noctyra Relay" */ = {
+		251C710C2F00A529007DB82C /* Build configuration list for PBXNativeTarget "Noctweave Relay" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				251C710D2F00A529007DB82C /* Debug */,
