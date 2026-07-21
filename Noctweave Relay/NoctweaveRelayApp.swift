@@ -13,5 +13,7 @@ struct NoctweaveRelayApp: App {
         WindowGroup {
             ContentView()
         }
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
     }
 }
