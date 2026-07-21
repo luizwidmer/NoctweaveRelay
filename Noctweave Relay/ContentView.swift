@@ -725,9 +725,7 @@ struct ContentView: View {
                     .id(RelayPanel.logs)
                     }
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 42)
-                        .padding(.bottom, 20)
+                        .padding(20)
                         .frame(maxWidth: 980, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .top)
                     }
@@ -825,11 +823,11 @@ struct ContentView: View {
                     .textSelection(.enabled)
             }
             .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .premiumSurface(cornerRadius: 14, tintOpacity: 0.10)
         }
         .padding(14)
-        .padding(.top, 30)
-        .frame(width: 228)
+        .frame(width: 210)
         .background(.ultraThinMaterial)
         .overlay(alignment: .trailing) {
             Rectangle()
@@ -839,40 +837,23 @@ struct ContentView: View {
     }
 
     private var serverHeader: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(Color.noctweaveCoral.opacity(0.16))
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color.noctweaveCoral)
-                }
-                .frame(width: 44, height: 44)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Noctweave Relay")
-                        .font(.title2.weight(.bold))
-                    Text("Private delivery infrastructure")
-                        .font(.subheadline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Noctweave Relay", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.title3.weight(.semibold))
+                    Text("Control plane for transport, federation, storage, and security.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
-                runningStatusBadge
-            }
 
-            HStack(spacing: 8) {
-                transportStatusBadge
-                protocolStatusBadge
-                permissionStatusBadge
-                Spacer(minLength: 0)
+                statusBadges
             }
-
-            Divider().opacity(0.18)
 
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
+                HStack(alignment: .bottom, spacing: 8) {
                     listenerFields
                     headerActions
                 }
@@ -881,14 +862,10 @@ struct ContentView: View {
                     headerActions
                 }
             }
-            HStack(spacing: 7) {
-                Image(systemName: "link")
-                Text(endpointPreview)
-                    .font(.caption.monospaced())
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-            }
-            .foregroundStyle(.secondary)
+            Text("Endpoint preview: \(endpointPreview)")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
         }
         .padding(16)
         .premiumSurface(cornerRadius: 20, tintOpacity: 0.22)
@@ -1309,7 +1286,7 @@ private struct PremiumRelayBackground: View {
             )
             RadialGradient(
                 colors: [
-                    Color.noctweaveCoral.opacity(0.11),
+                    Color.noctweaveCoral.opacity(0.16),
                     Color.clear
                 ],
                 center: .topLeading,
@@ -1318,7 +1295,7 @@ private struct PremiumRelayBackground: View {
             )
             RadialGradient(
                 colors: [
-                    Color.noctweaveSand.opacity(0.08),
+                    Color.noctweaveSand.opacity(0.12),
                     Color.clear
                 ],
                 center: .bottomTrailing,
