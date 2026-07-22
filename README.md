@@ -8,6 +8,7 @@ Noctweave Relay is the native macOS operator app for running and configuring a s
 - Disk-backed or ephemeral in-memory storage
 - TCP, HTTP, WebSocket, and TLS-capable endpoint configuration
 - Password-based relay access control
+- Optional bounded one-use rendezvous for Relay Pairing
 - Attachment retention and temporal-bucketing controls
 - Explicit `solo`, `manual`, `curated`, and `open` federation modes
 - Coordinator and relay-directory configuration

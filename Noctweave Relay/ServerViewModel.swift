@@ -657,6 +657,7 @@ final class ServerViewModel: ObservableObject {
     @Published var attachmentDefaultTTLMinutes: String = "60"
     @Published var attachmentMaxTTLMinutes: String = "360"
     @Published var attachmentsEnabled: Bool = true
+    @Published var rendezvousTransportEnabled: Bool = true
     @Published var attachmentStorageBackend: RelayAttachmentStorageBackend = .inline
     @Published var ipfsAPIEndpoint: String = "http://127.0.0.1:5001"
     @Published var ipfsGatewayEndpoint: String = ""
@@ -1115,7 +1116,8 @@ final class ServerViewModel: ObservableObject {
             curatedRequireSignedDirectory: curatedRequireSignedDirectory,
             advertisedEndpoint: advertisedRelayEndpoint,
             federationAllowList: allowList,
-            allowPrivateFederationEndpoints: allowPrivateFederationEndpoints
+            allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
+            rendezvousTransportEnabled: rendezvousTransportEnabled
         )
     }
 
@@ -1588,6 +1590,7 @@ final class ServerViewModel: ObservableObject {
         var attachmentDefaultTTLMinutes: String
         var attachmentMaxTTLMinutes: String
         var attachmentsEnabled: Bool?
+        var rendezvousTransportEnabled: Bool?
         var attachmentStorageBackend: RelayAttachmentStorageBackend?
         var ipfsAPIEndpoint: String?
         var ipfsGatewayEndpoint: String?
@@ -1649,6 +1652,7 @@ final class ServerViewModel: ObservableObject {
             $attachmentDefaultTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentMaxTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $rendezvousTransportEnabled.map { _ in () }.eraseToAnyPublisher(),
             $attachmentStorageBackend.map { _ in () }.eraseToAnyPublisher(),
             $ipfsAPIEndpoint.map { _ in () }.eraseToAnyPublisher(),
             $ipfsGatewayEndpoint.map { _ in () }.eraseToAnyPublisher(),
@@ -1759,6 +1763,7 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes: attachmentDefaultTTLMinutes,
             attachmentMaxTTLMinutes: attachmentMaxTTLMinutes,
             attachmentsEnabled: attachmentsEnabled,
+            rendezvousTransportEnabled: rendezvousTransportEnabled,
             attachmentStorageBackend: attachmentStorageBackend,
             ipfsAPIEndpoint: ipfsAPIEndpoint,
             ipfsGatewayEndpoint: ipfsGatewayEndpoint,
@@ -1869,6 +1874,7 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes = persisted.attachmentDefaultTTLMinutes
             attachmentMaxTTLMinutes = persisted.attachmentMaxTTLMinutes
             attachmentsEnabled = persisted.attachmentsEnabled ?? true
+            rendezvousTransportEnabled = persisted.rendezvousTransportEnabled ?? true
             attachmentStorageBackend = persisted.attachmentStorageBackend ?? .inline
             ipfsAPIEndpoint = persisted.ipfsAPIEndpoint ?? "http://127.0.0.1:5001"
             ipfsGatewayEndpoint = persisted.ipfsGatewayEndpoint ?? ""

@@ -206,6 +206,15 @@ struct ContentView: View {
                              : "Text-only mode rejects attachment upload and download routes.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        Toggle(
+                            "Allow one-use contact pairing",
+                            isOn: $model.rendezvousTransportEnabled
+                        )
+                        Text(model.rendezvousTransportEnabled
+                             ? "Advertises and serves bounded encrypted rendezvous lanes used by Relay Pairing. Direct / Offline Pairing does not require this service."
+                             : "Clients can still pair directly by QR or protected file, but Relay Pairing is unavailable on this node.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         Toggle("Advertise hidden retrieval", isOn: $model.hiddenRetrievalEnabled)
                         if model.hiddenRetrievalEnabled {
                             Picker("Mode", selection: $model.hiddenRetrievalMode) {

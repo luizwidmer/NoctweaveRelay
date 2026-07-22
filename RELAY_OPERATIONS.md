@@ -97,6 +97,15 @@ If `Relay Password` is set:
 
 Use a strong random password and rotate it if leaked.
 
+### One-use contact pairing
+
+`Allow one-use contact pairing` enables and advertises
+`nw.rendezvous-transport@2`. Relay Pairing requires this service. It stores only
+bounded encrypted frames under short-lived random capabilities. Direct / Offline
+Pairing transfers those stages by QR or protected file and therefore does not
+need this service, although each participant still needs a standard relay for
+its private message route.
+
 ## 7. Temporal Bucket
 `Temporal Bucket (minutes)` controls the base timestamp bucketing.
 `Multi-Bucket Schedule (minutes)` is an optional comma-separated list (example: `2,5,11`) used for per-message bucket selection.
