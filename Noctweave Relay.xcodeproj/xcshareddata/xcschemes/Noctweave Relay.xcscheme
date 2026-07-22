@@ -20,6 +20,20 @@
                ReferencedContainer = "container:Noctweave Relay.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "D9EAFABC05162738495A6B7D"
+               BuildableName = "Noctweave RelayTests.xctest"
+               BlueprintName = "Noctweave RelayTests"
+               ReferencedContainer = "container:Noctweave Relay.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -37,6 +51,16 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "D9EAFABC05162738495A6B7D"
+               BuildableName = "Noctweave RelayTests.xctest"
+               BlueprintName = "Noctweave RelayTests"
+               ReferencedContainer = "container:Noctweave Relay.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

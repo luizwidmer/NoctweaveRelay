@@ -6,12 +6,16 @@ Noctweave Relay is the native macOS operator app for running and configuring a s
 
 - Local relay start, stop, status, and runtime diagnostics
 - Disk-backed or ephemeral in-memory storage
-- TCP, HTTP, WebSocket, and TLS-capable endpoint configuration
+- TCP and HTTP endpoint configuration, with native TLS or TLS reverse-proxy support
 - Password-based relay access control
 - Optional bounded one-use rendezvous for Relay Pairing
 - Attachment retention and temporal-bucketing controls
 - Explicit `solo`, `manual`, `curated`, and `open` federation modes
 - Coordinator and relay-directory configuration
+
+The macOS relay serves native TCP frames or HTTP (`POST /relay`, `GET /health`, and
+`GET /info`). It does not implement a WebSocket listener; use the sibling Linux
+relay for WebSocket/WSS endpoints.
 
 This repository is an operator application, not a hosted relay service. Messages and attachments must be encrypted by clients before submission. Relays store and route ciphertext and must not be treated as trusted plaintext processors.
 

@@ -8,16 +8,24 @@
 
 /* Begin PBXBuildFile section */
 		D1E2F3A405162738495A6B7D /* NoctweaveCore in Frameworks */ = {isa = PBXBuildFile; productRef = E1F2A3B405162738495A6B7D /* NoctweaveCore */; };
+		D4E5F6A705162738495A6B7D /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D5E6F7A805162738495A6B7D /* XCTest.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		251C71012F00A529007DB82C /* Noctweave Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Noctweave Relay.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2E3F4A505162738495A6B7D /* Noctweave RelayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Noctweave RelayTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D5E6F7A805162738495A6B7D /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = "System/Library/Frameworks/XCTest.framework"; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		251C71032F00A529007DB82C /* Noctweave Relay */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Noctweave Relay";
+			sourceTree = "<group>";
+		};
+		D6E7F8A905162738495A6B7D /* Noctweave RelayTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Noctweave RelayTests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -31,6 +39,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D7E8F9AA05162738495A6B7D /* Noctweave RelayTests Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D4E5F6A705162738495A6B7D /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -38,6 +54,7 @@
 			isa = PBXGroup;
 			children = (
 				251C71032F00A529007DB82C /* Noctweave Relay */,
+				D6E7F8A905162738495A6B7D /* Noctweave RelayTests */,
 				251C71022F00A529007DB82C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,11 +63,22 @@
 			isa = PBXGroup;
 			children = (
 				251C71012F00A529007DB82C /* Noctweave Relay.app */,
+				D2E3F4A505162738495A6B7D /* Noctweave RelayTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		D8E9FAAB05162738495A6B7D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 251C70F92F00A529007DB82C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 251C71002F00A529007DB82C;
+			remoteInfo = "Noctweave Relay";
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXNativeTarget section */
 		251C71002F00A529007DB82C /* Noctweave Relay */ = {
@@ -76,7 +104,38 @@
 			productReference = 251C71012F00A529007DB82C /* Noctweave Relay.app */;
 			productType = "com.apple.product-type.application";
 		};
+		D9EAFABC05162738495A6B7D /* Noctweave RelayTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DAEFBC0D05162738495A6B7D /* Build configuration list for PBXNativeTarget "Noctweave RelayTests" */;
+			buildPhases = (
+				DBEFC0DD05162738495A6B7D /* Sources */,
+				D7E8F9AA05162738495A6B7D /* Noctweave RelayTests Frameworks */,
+				DCE0F1EE05162738495A6B7D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DFF102FF05162738495A6B7D /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D6E7F8A905162738495A6B7D /* Noctweave RelayTests */,
+			);
+			name = "Noctweave RelayTests";
+			productName = "Noctweave RelayTests";
+			productReference = D2E3F4A505162738495A6B7D /* Noctweave RelayTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DCE0F1EE05162738495A6B7D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXProject section */
 		251C70F92F00A529007DB82C /* Project object */ = {
@@ -88,6 +147,10 @@
 				TargetAttributes = {
 					251C71002F00A529007DB82C = {
 						CreatedOnToolsVersion = 26.0.1;
+					};
+					D9EAFABC05162738495A6B7D = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = 251C71002F00A529007DB82C;
 					};
 				};
 			};
@@ -109,9 +172,28 @@
 			projectRoot = "";
 			targets = (
 				251C71002F00A529007DB82C /* Noctweave Relay */,
+				D9EAFABC05162738495A6B7D /* Noctweave RelayTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DBEFC0DD05162738495A6B7D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DFF102FF05162738495A6B7D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 251C71002F00A529007DB82C /* Noctweave Relay */;
+			targetProxy = D8E9FAAB05162738495A6B7D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		251C70FF2F00A529007DB82C /* Resources */ = {
@@ -352,6 +434,36 @@
 			};
 			name = Release;
 		};
+		DAFBC10E05162738495A6B7D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9MY7SXN56X;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctweaveRelayTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noctweave Relay.app/Contents/MacOS/Noctweave Relay";
+			};
+			name = Debug;
+		};
+		DB0C21FF05162738495A6B7D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9MY7SXN56X;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luizwidmer.NoctweaveRelayTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noctweave Relay.app/Contents/MacOS/Noctweave Relay";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -369,6 +481,15 @@
 			buildConfigurations = (
 				251C710D2F00A529007DB82C /* Debug */,
 				251C710E2F00A529007DB82C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DAEFBC0D05162738495A6B7D /* Build configuration list for PBXNativeTarget "Noctweave RelayTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DAFBC10E05162738495A6B7D /* Debug */,
+				DB0C21FF05162738495A6B7D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

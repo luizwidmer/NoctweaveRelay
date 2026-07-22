@@ -80,8 +80,9 @@ Example:
 
 Allowlist parsing rules:
 - `host:port` is accepted.
-- `https://host[:port]` and `wss://host[:port]` are accepted.
-- If URL port is omitted, `https`/`wss` default to `443`, `http`/`ws` default to `80`, and bare TCP defaults to `9339`.
+- `https://host[:port]` is accepted for HTTP relays.
+- If URL port is omitted, `https` defaults to `443`, `http` defaults to `80`, and bare TCP defaults to `9339`.
+- The macOS relay does not implement WebSocket/WSS listeners; configure those endpoints with the sibling Linux relay.
 
 ## 5. Storage Modes
 - `Disk`: persists envelopes, prekeys, and attachment data at the selected file path.
@@ -100,11 +101,14 @@ Use a strong random password and rotate it if leaked.
 ### One-use contact pairing
 
 `Allow one-use contact pairing` enables and advertises
-`nw.rendezvous-transport@2`. Relay Pairing requires this service. It stores only
-bounded encrypted frames under short-lived random capabilities. Direct / Offline
-Pairing transfers those stages by QR or protected file and therefore does not
-need this service, although each participant still needs a standard relay for
-its private message route.
+`nw.rendezvous-transport@2` only when the effective transport is confidential:
+native Relay TLS or a trusted TLS reverse proxy. It is never advertised as
+usable over remote plaintext TCP. The local listener remains plain in reverse-
+proxy mode and must be firewalled so clients cannot bypass the trusted proxy.
+The service stores only bounded encrypted frames under short-lived
+random capabilities. Direct / Offline Pairing transfers those stages by QR or
+protected file and therefore does not need this service, although each
+participant still needs a standard relay for its private message route.
 
 ## 7. Temporal Bucket
 `Temporal Bucket (minutes)` controls the base timestamp bucketing.

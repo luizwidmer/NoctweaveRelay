@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 import NoctweaveCore
 import Network
@@ -539,6 +540,7 @@ private enum RelaySecretStore {
         case coordinatorRegistrationToken = "coordinator-registration-token"
         case tlsIdentityPassword = "tls-identity-password"
         case coordinatorDirectorySigningKey = "coordinator-directory-signing-key"
+        case opaqueRouteSnapshotKey = "opaque-route-snapshot-key-v2"
     }
 
     private static let service = "com.noctweave.relay.configuration"
@@ -617,12 +619,72 @@ private enum RelaySecretStore {
         case relayPassword
         case coordinatorRegistrationToken
         case tlsIdentityPassword
+        case opaqueRouteSnapshotKey
     }
 
     static func load(account: Account) throws -> String? { nil }
     static func save(_ value: String, account: Account) throws {}
 }
 #endif
+
+actor RelayOpaqueRouteSnapshotVault {
+    private struct Envelope: Codable {
+        let version: Int
+        let sealed: Data
+    }
+
+    private static let version = 1
+    private static let maximumStoredBytes = 128 * 1024 * 1024
+    private static let authenticatedData = Data("noctweave.relay.opaque-route-snapshot.v1\0".utf8)
+
+    private let fileURL: URL
+    private let key: SymmetricKey
+
+    init(fileURL: URL, keyData: Data) throws {
+        guard keyData.count == 32 else { throw CocoaError(.fileReadCorruptFile) }
+        self.fileURL = fileURL.standardizedFileURL
+        self.key = SymmetricKey(data: keyData)
+    }
+
+    func load() throws -> OpaqueRouteRelayStateSnapshotV2? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let size = values.fileSize,
+              (1...Self.maximumStoredBytes).contains(size) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let encoded = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
+        guard encoded.count <= Self.maximumStoredBytes else {
+            throw CocoaError(.fileReadTooLarge)
+        }
+        let envelope = try JSONDecoder().decode(Envelope.self, from: encoded)
+        guard envelope.version == Self.version,
+              envelope.sealed.count <= Self.maximumStoredBytes,
+              let box = try? AES.GCM.SealedBox(combined: envelope.sealed) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        var plaintext = try AES.GCM.open(box, using: key, authenticating: Self.authenticatedData)
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        return try NoctweaveCoder.decode(OpaqueRouteRelayStateSnapshotV2.self, from: plaintext)
+    }
+
+    func save(_ snapshot: OpaqueRouteRelayStateSnapshotV2) throws {
+        guard snapshot.isStructurallyValid else { throw CocoaError(.fileWriteInvalidFileName) }
+        var plaintext = try NoctweaveCoder.encode(snapshot, sortedKeys: true)
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        let sealed = try AES.GCM.seal(plaintext, using: key, authenticating: Self.authenticatedData)
+        guard let combined = sealed.combined else { throw CocoaError(.fileWriteUnknown) }
+        let encoded = try JSONEncoder().encode(Envelope(version: Self.version, sealed: combined))
+        guard encoded.count <= Self.maximumStoredBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try encoded.write(to: fileURL, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+}
 
 @MainActor
 final class ServerViewModel: ObservableObject {
@@ -657,7 +719,7 @@ final class ServerViewModel: ObservableObject {
     @Published var attachmentDefaultTTLMinutes: String = "60"
     @Published var attachmentMaxTTLMinutes: String = "360"
     @Published var attachmentsEnabled: Bool = true
-    @Published var rendezvousTransportEnabled: Bool = true
+    @Published var rendezvousTransportEnabled: Bool = RelayRuntimePolicy.defaultRendezvousTransportEnabled
     @Published var attachmentStorageBackend: RelayAttachmentStorageBackend = .inline
     @Published var ipfsAPIEndpoint: String = "http://127.0.0.1:5001"
     @Published var ipfsGatewayEndpoint: String = ""
@@ -705,6 +767,8 @@ final class ServerViewModel: ObservableObject {
     private let settingsURL: URL
     private var store: RelayStore
     private var server: RelayServer
+    private var opaqueRouteStore = OpaqueRouteRelayStoreV2()
+    private var opaqueRouteSnapshotVault: RelayOpaqueRouteSnapshotVault?
     let softwareVersion: String
     private let defaultRelayPort: UInt16 = 9339
     private var settingsCancellables: Set<AnyCancellable> = []
@@ -713,6 +777,17 @@ final class ServerViewModel: ObservableObject {
 
     var effectiveTLSEnabled: Bool {
         transportSecurityMode.advertisesTLS
+    }
+
+    var effectiveRendezvousTransportEnabled: Bool {
+        RelayRuntimePolicy.effectiveRendezvousTransportEnabled(
+            configured: rendezvousTransportEnabled,
+            securityMode: transportSecurityMode
+        )
+    }
+
+    var trustedProxyConfidentialitySignal: Bool {
+        RelayRuntimePolicy.trustedProxyConfidentialitySignal(transportSecurityMode)
     }
 
     var permissionPreflightReady: Bool {
@@ -828,13 +903,32 @@ final class ServerViewModel: ObservableObject {
             lastError = redactedRelayAppError(error, fallback: "Attachment storage configuration is not usable.")
             return
         }
+        let snapshotVault: RelayOpaqueRouteSnapshotVault?
+        do {
+            snapshotVault = try makeOpaqueRouteSnapshotVault(storeURL: resolvedStoreURL)
+        } catch {
+            lastError = redactedRelayAppError(error, fallback: "Opaque-route storage protection is unavailable.")
+            return
+        }
+        let runtimeOpaqueRouteStore = OpaqueRouteRelayStoreV2()
+        opaqueRouteStore = runtimeOpaqueRouteStore
+        opaqueRouteSnapshotVault = snapshotVault
         store = RelayStore(
             storeURL: resolvedStoreURL,
             temporalBucketSeconds: configuration.temporalBucketSeconds,
             temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds,
             attachmentBlobStore: attachmentBlobStore
         )
-        server = RelayServer(store: store, configuration: configuration)
+        server = RelayServer(
+            store: store,
+            opaqueRouteStore: runtimeOpaqueRouteStore,
+            configuration: configuration
+        )
+        if let snapshotVault {
+            server.onOpaqueRouteStateSnapshot = { snapshot in
+                try await snapshotVault.save(snapshot)
+            }
+        }
         server.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event: event)
@@ -845,6 +939,9 @@ final class ServerViewModel: ObservableObject {
                 if resolvedStoreURL != nil {
                     try await store.loadFromDisk()
                 }
+                if let snapshot = try await snapshotVault?.load() {
+                    try await runtimeOpaqueRouteStore.restore(snapshot)
+                }
                 try server.start(host: trimmedHost, port: portValue)
                 isRunning = true
             } catch {
@@ -854,8 +951,23 @@ final class ServerViewModel: ObservableObject {
     }
 
     func stop() {
-        server.stop()
-        isRunning = false
+        let stoppingServer = server
+        let snapshotVault = opaqueRouteSnapshotVault
+        Task {
+            do {
+                if let snapshotVault {
+                    try await snapshotVault.save(try await stoppingServer.opaqueRouteStateSnapshot())
+                }
+            } catch {
+                appendRedactedLog(
+                    "Failed to persist opaque-route state during shutdown",
+                    error: error,
+                    fallback: "Opaque-route state could not be saved."
+                )
+            }
+            stoppingServer.stop()
+            isRunning = false
+        }
     }
 
     func fetchFederationSource() {
@@ -1098,7 +1210,8 @@ final class ServerViewModel: ObservableObject {
             accessPassword: password.isEmpty ? nil : password,
             coordinatorRegistrationToken: registrationToken.isEmpty ? nil : registrationToken,
             tlsEnabled: transportSecurityMode.usesRelayTLS,
-            advertisedTLSEnabled: transportSecurityMode == .reverseProxyTLS ? true : nil,
+            advertisedTLSEnabled: trustedProxyConfidentialitySignal ? true : nil,
+            trustedReverseProxyTLS: trustedProxyConfidentialitySignal,
             transport: communicationMode.relayTransport,
             tlsIdentityPKCS12Path: transportSecurityMode.usesRelayTLS && !tlsPath.isEmpty ? tlsPath : nil,
             tlsIdentityPassword: transportSecurityMode.usesRelayTLS && !tlsPassword.isEmpty ? tlsPassword : nil,
@@ -1117,7 +1230,7 @@ final class ServerViewModel: ObservableObject {
             advertisedEndpoint: advertisedRelayEndpoint,
             federationAllowList: allowList,
             allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
-            rendezvousTransportEnabled: rendezvousTransportEnabled
+            rendezvousTransportEnabled: effectiveRendezvousTransportEnabled
         )
     }
 
@@ -1159,6 +1272,30 @@ final class ServerViewModel: ObservableObject {
             let expanded = (trimmed as NSString).expandingTildeInPath
             return normalizedSQLiteURL(URL(fileURLWithPath: expanded))
         }
+    }
+
+    private func makeOpaqueRouteSnapshotVault(
+        storeURL: URL?
+    ) throws -> RelayOpaqueRouteSnapshotVault? {
+        guard let storeURL else { return nil }
+        let keyData: Data
+        if let encoded = try RelaySecretStore.load(account: .opaqueRouteSnapshotKey),
+           let existing = Data(base64Encoded: encoded),
+           existing.count == 32 {
+            keyData = existing
+        } else {
+            let key = SymmetricKey(size: .bits256)
+            let generated = key.withUnsafeBytes { Data($0) }
+            try RelaySecretStore.save(
+                generated.base64EncodedString(),
+                account: .opaqueRouteSnapshotKey
+            )
+            keyData = generated
+        }
+        let snapshotURL = storeURL
+            .deletingPathExtension()
+            .appendingPathExtension("opaque-routes.nwstate")
+        return try RelayOpaqueRouteSnapshotVault(fileURL: snapshotURL, keyData: keyData)
     }
 
     private func makeAttachmentBlobStore() throws -> AttachmentBlobStore? {
@@ -1553,7 +1690,11 @@ final class ServerViewModel: ObservableObject {
             temporalBucketSeconds: configuration.temporalBucketSeconds,
             temporalBucketScheduleSeconds: configuration.temporalBucketScheduleSeconds
         )
-        server = RelayServer(store: store, configuration: configuration)
+        server = RelayServer(
+            store: store,
+            opaqueRouteStore: opaqueRouteStore,
+            configuration: configuration
+        )
         server.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event: event)
@@ -1874,7 +2015,7 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes = persisted.attachmentDefaultTTLMinutes
             attachmentMaxTTLMinutes = persisted.attachmentMaxTTLMinutes
             attachmentsEnabled = persisted.attachmentsEnabled ?? true
-            rendezvousTransportEnabled = persisted.rendezvousTransportEnabled ?? true
+            rendezvousTransportEnabled = persisted.rendezvousTransportEnabled ?? RelayRuntimePolicy.defaultRendezvousTransportEnabled
             attachmentStorageBackend = persisted.attachmentStorageBackend ?? .inline
             ipfsAPIEndpoint = persisted.ipfsAPIEndpoint ?? "http://127.0.0.1:5001"
             ipfsGatewayEndpoint = persisted.ipfsGatewayEndpoint ?? ""

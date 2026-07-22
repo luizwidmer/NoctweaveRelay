@@ -210,11 +210,12 @@ struct ContentView: View {
                             "Allow one-use contact pairing",
                             isOn: $model.rendezvousTransportEnabled
                         )
-                        Text(model.rendezvousTransportEnabled
-                             ? "Advertises and serves bounded encrypted rendezvous lanes used by Relay Pairing. Direct / Offline Pairing does not require this service."
-                             : "Clients can still pair directly by QR or protected file, but Relay Pairing is unavailable on this node.")
+                        Text(RelayRuntimePolicy.rendezvousAvailabilityDescription(
+                            configured: model.rendezvousTransportEnabled,
+                            securityMode: model.transportSecurityMode
+                        ))
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(model.rendezvousTransportEnabled && !model.effectiveRendezvousTransportEnabled ? .orange : .secondary)
                         Toggle("Advertise hidden retrieval", isOn: $model.hiddenRetrievalEnabled)
                         if model.hiddenRetrievalEnabled {
                             Picker("Mode", selection: $model.hiddenRetrievalMode) {
@@ -647,8 +648,8 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         } else if model.transportSecurityMode == .reverseProxyTLS {
                             Text(model.communicationMode == .http
-                                ? "TLS is terminated at your reverse proxy. The relay listens on plain HTTP behind it, so no local PKCS#12 certificate is required."
-                                : "TLS is terminated at your reverse proxy. The relay listens on plain TCP behind it, so no local PKCS#12 certificate is required.")
+                                ? "TLS is terminated at your trusted reverse proxy. The relay listens on plain HTTP behind it, so no local PKCS#12 certificate is required. Firewall the backend so clients cannot bypass the proxy."
+                                : "TLS is terminated at your trusted reverse proxy. The relay listens on plain TCP behind it, so no local PKCS#12 certificate is required. Firewall the backend so clients cannot bypass the proxy.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Text(model.communicationMode == .http
@@ -668,7 +669,7 @@ struct ContentView: View {
 
                         TextField("Advertised endpoint (optional, e.g. tls://relay.example.org:443)", text: $model.advertisedEndpoint)
                             .relayFieldStyle()
-                        Text("Used for coordinator registration and external discovery. Required in Proxy TLS mode.")
+                        Text("Used for coordinator registration and external discovery. Required in Proxy TLS mode. WebSocket is not served by this macOS relay.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
 
