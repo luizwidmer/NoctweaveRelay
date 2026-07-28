@@ -5,10 +5,12 @@ import Combine
 
 struct ContentView: View {
     @StateObject private var model = ServerViewModel()
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("noctweave.server.acceptedPrivacyPolicy.v1") private var acceptedPrivacyPolicy = false
     @AppStorage("noctweave.server.acceptedTermsOfUse.v1") private var acceptedTermsOfUse = false
     @AppStorage("noctweave.server.permissions.preflight.v1") private var completedPermissionPreflight = false
     @AppStorage("noctweave.server.setupGuide.seen.v1") private var hasSeenSetupGuide = false
+    @AppStorage("noctweave.relay.appearance") private var appearanceRaw = NoctweaveAppearanceMode.system.rawValue
     @State private var pendingPrivacyAcceptance = false
     @State private var pendingTermsAcceptance = false
     @State private var showingLegalDetails = false
@@ -55,6 +57,10 @@ struct ContentView: View {
 
     private var requiresPermissionPreflight: Bool {
         !requiresLegalAcceptance && !completedPermissionPreflight
+    }
+
+    private var theme: NoctweaveThemeTokens {
+        NoctweaveThemeTokens(colorScheme: colorScheme)
     }
 
     var body: some View {
@@ -714,7 +720,7 @@ struct ContentView: View {
                                                     .fill(
                                                         LinearGradient(
                                                             colors: [
-                                                                Color.black.opacity(0.28),
+                                                                theme.surfaceRaised,
                                                                 Color.noctweaveWine.opacity(0.14)
                                                             ],
                                                             startPoint: .topLeading,
@@ -723,7 +729,7 @@ struct ContentView: View {
                                                     )
                                                     .overlay(
                                                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                            .stroke(Color.white.opacity(0.08), lineWidth: 0.7)
+                                                            .stroke(theme.border, lineWidth: 0.7)
                                                     )
                                             )
                                     }
@@ -800,15 +806,15 @@ struct ContentView: View {
                                     .font(.subheadline.weight(selectedPanel == panel ? .semibold : .regular))
                                 Spacer()
                             }
-                            .foregroundStyle(selectedPanel == panel ? Color.white : Color.secondary)
+                            .foregroundStyle(selectedPanel == panel ? theme.selectedText : Color.secondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 9)
                             .background(
                                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                    .fill(selectedPanel == panel ? Color.noctweaveWine.opacity(0.34) : Color.clear)
+                                    .fill(selectedPanel == panel ? theme.selectedFill : Color.clear)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                            .stroke(selectedPanel == panel ? Color.white.opacity(0.14) : Color.clear, lineWidth: 0.8)
+                                            .stroke(selectedPanel == panel ? theme.borderStrong : Color.clear, lineWidth: 0.8)
                                     )
                             )
                         }
@@ -820,6 +826,30 @@ struct ContentView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 8) {
+                Menu {
+                    Picker("Appearance", selection: $appearanceRaw) {
+                        ForEach(NoctweaveAppearanceMode.allCases) { mode in
+                            Label(mode.title, systemImage: mode.symbol)
+                                .tag(mode.rawValue)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: "circle.lefthalf.filled")
+                            .frame(width: 16)
+                        Text("Appearance")
+                        Spacer()
+                        Text((NoctweaveAppearanceMode(rawValue: appearanceRaw) ?? .system).title)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityIdentifier("relay.appearance")
+
+                Divider()
+
                 Label(
                     model.isRunning ? "Relay online" : "Relay stopped",
                     systemImage: model.isRunning ? "checkmark.circle.fill" : "pause.circle"
@@ -841,7 +871,7 @@ struct ContentView: View {
         .background(.ultraThinMaterial)
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(theme.border)
                 .frame(width: 0.5)
         }
     }
@@ -1044,7 +1074,7 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
-                .background(Color.white.opacity(0.045))
+                .background(theme.surface)
 
                 if model.manualFederationNodes.isEmpty {
                     Text("No federated relays added.")
@@ -1098,11 +1128,11 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.white.opacity(0.10), lineWidth: 0.8)
+                    .stroke(theme.border, lineWidth: 0.8)
             )
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.black.opacity(0.18))
+                    .fill(theme.surface)
             )
         }
     }
@@ -1160,10 +1190,10 @@ struct ContentView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.black.opacity(0.24))
+                .fill(theme.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 0.7)
+                        .stroke(theme.border, lineWidth: 0.7)
                 )
         )
     }
@@ -1283,20 +1313,29 @@ struct ContentView: View {
 }
 
 private struct PremiumRelayBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
+        let theme = NoctweaveThemeTokens(colorScheme: colorScheme)
         ZStack {
             LinearGradient(
-                colors: [
-                    Color.black.opacity(0.94),
-                    Color.noctweaveWine.opacity(0.26),
-                    Color.black.opacity(0.90)
-                ],
+                colors: colorScheme == .dark
+                    ? [
+                        theme.canvas,
+                        Color.noctweaveWine.opacity(0.26),
+                        theme.canvasRaised
+                    ]
+                    : [
+                        theme.canvas,
+                        Color.noctweaveIvory,
+                        Color.noctweaveSand.opacity(0.42)
+                    ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             RadialGradient(
                 colors: [
-                    Color.noctweaveCoral.opacity(0.16),
+                    Color.noctweaveCoral.opacity(colorScheme == .dark ? 0.16 : 0.12),
                     Color.clear
                 ],
                 center: .topLeading,
@@ -1305,7 +1344,8 @@ private struct PremiumRelayBackground: View {
             )
             RadialGradient(
                 colors: [
-                    Color.noctweaveSand.opacity(0.12),
+                    (colorScheme == .dark ? Color.noctweaveSand : Color.noctweaveWine)
+                        .opacity(colorScheme == .dark ? 0.12 : 0.07),
                     Color.clear
                 ],
                 center: .bottomTrailing,
@@ -1318,10 +1358,12 @@ private struct PremiumRelayBackground: View {
 }
 
 private struct RelayPremiumSurface: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
     let cornerRadius: CGFloat
     let tintOpacity: Double
 
     func body(content: Content) -> some View {
+        let theme = NoctweaveThemeTokens(colorScheme: colorScheme)
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -1330,11 +1372,17 @@ private struct RelayPremiumSurface: ViewModifier {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .fill(
                                 LinearGradient(
-                                    colors: [
-                                        Color.black.opacity(0.24),
-                                        Color.noctweaveWine.opacity(tintOpacity),
-                                        Color.black.opacity(0.16)
-                                    ],
+                                    colors: colorScheme == .dark
+                                        ? [
+                                            theme.surfaceRaised,
+                                            Color.noctweaveWine.opacity(tintOpacity),
+                                            theme.surface
+                                        ]
+                                        : [
+                                            theme.surfaceRaised,
+                                            Color.noctweaveCoral.opacity(tintOpacity * 0.42),
+                                            theme.surface
+                                        ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
@@ -1342,9 +1390,9 @@ private struct RelayPremiumSurface: ViewModifier {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+                            .stroke(theme.border, lineWidth: 0.8)
                     )
-                    .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 7)
+                    .shadow(color: theme.shadow, radius: 16, x: 0, y: 7)
             )
     }
 }
@@ -1353,8 +1401,10 @@ private struct RelayGlassButtonStyle: ButtonStyle {
     let prominent: Bool
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeBody(configuration: Configuration) -> some View {
+        let theme = NoctweaveThemeTokens(colorScheme: colorScheme)
         configuration.label
             .font(.callout.weight(.semibold))
             .padding(.horizontal, 13)
@@ -1372,7 +1422,7 @@ private struct RelayGlassButtonStyle: ButtonStyle {
                                             Color.noctweaveCoral.opacity(configuration.isPressed ? 0.24 : 0.18)
                                         ]
                                         : [
-                                            Color.white.opacity(configuration.isPressed ? 0.10 : 0.05),
+                                            theme.surfaceRaised.opacity(configuration.isPressed ? 0.92 : 0.76),
                                             Color.noctweaveWine.opacity(configuration.isPressed ? 0.15 : 0.09)
                                         ],
                                     startPoint: .topLeading,
@@ -1385,7 +1435,7 @@ private struct RelayGlassButtonStyle: ButtonStyle {
                             .stroke(
                                 isHovering
                                     ? Color.noctweaveCoral.opacity(prominent ? 0.56 : 0.34)
-                                    : Color.white.opacity(prominent ? 0.20 : 0.12),
+                                    : (prominent ? theme.borderStrong : theme.border),
                                 lineWidth: isHovering ? 1.0 : 0.8
                             )
                     )
@@ -1409,22 +1459,31 @@ private extension View {
     }
 
     func relayFieldStyle() -> some View {
-        self
+        modifier(RelayFieldModifier())
+    }
+
+    func relayButton(prominent: Bool = false) -> some View {
+        buttonStyle(RelayGlassButtonStyle(prominent: prominent))
+    }
+}
+
+private struct RelayFieldModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let theme = NoctweaveThemeTokens(colorScheme: colorScheme)
+        content
             .textFieldStyle(.plain)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.black.opacity(0.26))
+                    .fill(theme.field)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.white.opacity(0.10), lineWidth: 0.7)
+                            .stroke(theme.border, lineWidth: 0.7)
                     )
             )
-    }
-
-    func relayButton(prominent: Bool = false) -> some View {
-        buttonStyle(RelayGlassButtonStyle(prominent: prominent))
     }
 }
 
@@ -1512,6 +1571,7 @@ private struct RelaySheetSection<Content: View>: View {
 }
 
 private struct ServerPermissionPreflightView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let localNetworkStatus: StartupPermissionStatus
     let incomingStatus: StartupPermissionStatus
     let detailMessage: String?
@@ -1574,7 +1634,8 @@ private struct ServerPermissionPreflightView: View {
     }
 
     private func permissionRow(title: String, subtitle: String, status: StartupPermissionStatus) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        let theme = NoctweaveThemeTokens(colorScheme: colorScheme)
+        return HStack(alignment: .top, spacing: 10) {
             Image(systemName: statusIcon(status))
                 .foregroundStyle(statusColor(status))
                 .font(.headline)
@@ -1597,10 +1658,10 @@ private struct ServerPermissionPreflightView: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.black.opacity(0.24))
+                .fill(theme.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 0.7)
+                        .stroke(theme.border, lineWidth: 0.7)
                 )
         )
     }
