@@ -23,6 +23,7 @@ struct ContentView: View {
         case profile
         case federation
         case storage
+        case web
         case security
         case logs
 
@@ -34,6 +35,7 @@ struct ContentView: View {
             case .profile: return "Relay Profile"
             case .federation: return "Federation"
             case .storage: return "Storage"
+            case .web: return "Noctweb"
             case .security: return "Transport"
             case .logs: return "Logs"
             }
@@ -45,6 +47,7 @@ struct ContentView: View {
             case .profile: return "slider.horizontal.3"
             case .federation: return "point.3.connected.trianglepath.dotted"
             case .storage: return "externaldrive"
+            case .web: return "globe"
             case .security: return "lock.shield"
             case .logs: return "text.alignleft"
             }
@@ -602,6 +605,51 @@ struct ContentView: View {
                     }
                     .disabled(model.isRunning)
                     .id(RelayPanel.storage)
+                    }
+
+                    if selectedPanel == .web {
+                    serverCard(
+                        title: "Noctweb",
+                        subtitle: "Web hosting capability and authoring surface",
+                        icon: "globe"
+                    ) {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Native Relay Runtime")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Messaging, routing, federation, and storage")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            statusBadge(
+                                "Messaging only",
+                                icon: "minus.circle.fill",
+                                color: .orange
+                            )
+                        }
+
+                        Text(RelayRuntimePolicy.noctwebAvailabilityDescription)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        Divider().opacity(0.2)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Full relay capability", systemImage: "checkmark.seal.fill")
+                                .font(.headline)
+                                .foregroundStyle(.mint)
+                            federationDetailRow("Protocol module", value: "nw.net-host@1")
+                            federationDetailRow("Operator surface", value: "/noctweb/ Publisher / Lab")
+                            federationDetailRow("Supported deployment", value: "Linux, Docker, or desktop Docker launcher")
+                            Text("A solo standard full relay can host Noctweb pages. The dedicated Noctweb Lab can publish through the same capability, while the built-in Publisher / Lab offers a browser-based operator workflow.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(14)
+                        .premiumSurface(cornerRadius: 14, tintOpacity: 0.10)
+                    }
+                    .id(RelayPanel.web)
                     }
 
                     if selectedPanel == .security {

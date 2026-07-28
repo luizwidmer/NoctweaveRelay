@@ -6,6 +6,12 @@ final class RelayRuntimePolicyTests: XCTestCase {
         XCTAssertFalse(RelayRuntimePolicy.defaultRendezvousTransportEnabled)
     }
 
+    func testNativeRuntimeReportsNoctwebBoundaryClearly() {
+        XCTAssertFalse(RelayRuntimePolicy.nativeNoctwebHostingAvailable)
+        XCTAssertTrue(RelayRuntimePolicy.noctwebAvailabilityDescription.contains("nw.net-host@1"))
+        XCTAssertTrue(RelayRuntimePolicy.noctwebAvailabilityDescription.contains("Publisher / Lab"))
+    }
+
     func testRemotePlaintextNeverMakesRendezvousEffective() {
         XCTAssertFalse(
             RelayRuntimePolicy.effectiveRendezvousTransportEnabled(
