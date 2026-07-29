@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var showingLegalDetails = false
     @State private var showingDonateSheet = false
     @State private var showingSetupGuide = false
+    @State private var showingRelayIdentityRotation = false
+    @State private var showingNoctwebSuffixRelease = false
     @State private var selectedPanel: RelayPanel = .overview
 
     private enum RelayPanel: String, CaseIterable, Identifiable {
@@ -648,6 +650,94 @@ struct ContentView: View {
                         }
                         .padding(14)
                         .premiumSurface(cornerRadius: 14, tintOpacity: 0.10)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label(
+                                "Authenticated Federation Namespace",
+                                systemImage: "signature"
+                            )
+                            .font(.headline)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Relay identity")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(model.relayIdentityID)
+                                    .font(.caption.monospaced())
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
+                            }
+
+                            HStack(alignment: .center, spacing: 10) {
+                                TextField(
+                                    ".atelier",
+                                    text: $model.noctwebRelaySuffix
+                                )
+                                .relayFieldStyle()
+                                .disabled(
+                                    model.isRunning
+                                        || model.claimedNoctwebSuffix != nil
+                                )
+
+                                if let suffix = model.claimedNoctwebSuffix {
+                                    statusBadge(
+                                        suffix,
+                                        icon: "checkmark.seal.fill",
+                                        color: .mint
+                                    )
+                                } else {
+                                    statusBadge(
+                                        "Unclaimed",
+                                        icon: "circle.dashed",
+                                        color: .secondary
+                                    )
+                                }
+                            }
+
+                            HStack(spacing: 10) {
+                                Button {
+                                    showingRelayIdentityRotation = true
+                                } label: {
+                                    Label(
+                                        "Rotate Relay Identity",
+                                        systemImage: "arrow.triangle.2.circlepath"
+                                    )
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(model.isRunning)
+
+                                Button(role: .destructive) {
+                                    showingNoctwebSuffixRelease = true
+                                } label: {
+                                    Label(
+                                        "Release Suffix",
+                                        systemImage: "flame"
+                                    )
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(
+                                    model.isRunning
+                                        || model.claimedNoctwebSuffix == nil
+                                )
+                            }
+
+                            if let status = model.namespacePropagationStatus {
+                                Text(status)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Text(
+                                "The ML-DSA relay identity authenticates federation endpoints and namespace statements. Taking a relay offline never frees its suffix. Rotation is double-signed by the old and new keys. Release permanently tombstones the suffix, so it can never be claimed again."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                        .padding(14)
+                        .premiumSurface(
+                            cornerRadius: 14,
+                            tintOpacity: 0.10
+                        )
                     }
                     .id(RelayPanel.web)
                     }
@@ -820,6 +910,34 @@ struct ContentView: View {
                 hasSeenSetupGuide = true
                 showingSetupGuide = false
             }
+        }
+        .confirmationDialog(
+            "Rotate relay identity?",
+            isPresented: $showingRelayIdentityRotation,
+            titleVisibility: .visible
+        ) {
+            Button("Rotate Identity") {
+                model.rotateRelayIdentity()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "A fresh ML-DSA relay identity will replace the current key. If this relay owns a suffix, a double-signed continuity statement keeps the same suffix."
+            )
+        }
+        .confirmationDialog(
+            "Permanently release \(model.claimedNoctwebSuffix ?? "this suffix")?",
+            isPresented: $showingNoctwebSuffixRelease,
+            titleVisibility: .visible
+        ) {
+            Button("Release and Tombstone", role: .destructive) {
+                model.releaseNoctwebSuffix()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This is irreversible. The suffix remains tombstoned in federation consensus and can never be assigned to any relay again."
+            )
         }
     }
 

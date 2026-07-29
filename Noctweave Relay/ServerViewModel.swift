@@ -541,6 +541,8 @@ private enum RelaySecretStore {
         case tlsIdentityPassword = "tls-identity-password"
         case coordinatorDirectorySigningKey = "coordinator-directory-signing-key"
         case opaqueRouteSnapshotKey = "opaque-route-snapshot-key-v2"
+        case relayIdentityKey = "relay-identity-key-v1"
+        case pendingRelayIdentityKey = "relay-identity-key-pending-v1"
     }
 
     private static let service = "com.noctweave.relay.configuration"
@@ -619,7 +621,10 @@ private enum RelaySecretStore {
         case relayPassword
         case coordinatorRegistrationToken
         case tlsIdentityPassword
+        case coordinatorDirectorySigningKey
         case opaqueRouteSnapshotKey
+        case relayIdentityKey
+        case pendingRelayIdentityKey
     }
 
     static func load(account: Account) throws -> String? { nil }
@@ -686,8 +691,68 @@ actor RelayOpaqueRouteSnapshotVault {
     }
 }
 
+nonisolated private struct PersistedNoctwebNamespaceLedger: Codable {
+    let version: Int
+    let records: [NoctwebNamespaceRecordV1]
+}
+
+private final class ServerViewModelWeakReference: @unchecked Sendable {
+    weak var value: ServerViewModel?
+
+    init(_ value: ServerViewModel) {
+        self.value = value
+    }
+}
+
 @MainActor
 final class ServerViewModel: ObservableObject {
+    private enum NoctwebLifecycleError: LocalizedError {
+        case relayMustBeStopped
+        case identityUnavailable
+        case invalidSuffix
+        case federatedSuffixRequired
+        case activeSuffixRequired(String)
+        case multipleOwnedSuffixes
+        case suffixAlreadyOwned
+        case suffixTombstoned
+        case noActiveSuffix
+        case ownershipMismatch
+        case sequenceExhausted
+        case endpointUnavailable
+        case capabilityUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .relayMustBeStopped:
+                return "Stop the relay before changing its cryptographic identity or namespace."
+            case .identityUnavailable:
+                return "The persistent relay identity is unavailable."
+            case .invalidSuffix:
+                return "Enter a suffix such as .atelier using lowercase letters, numbers, or hyphens."
+            case .federatedSuffixRequired:
+                return "Federated relays require a permanent Noctweb suffix so peers can authenticate routing and namespace ownership."
+            case .activeSuffixRequired(let suffix):
+                return "\(suffix) is already assigned to this relay. Release it explicitly before choosing another suffix."
+            case .multipleOwnedSuffixes:
+                return "This relay identity owns multiple active suffixes. Resolve the namespace ledger before starting."
+            case .suffixAlreadyOwned:
+                return "That suffix is already owned by another relay identity."
+            case .suffixTombstoned:
+                return "That suffix was permanently released and can never be registered again."
+            case .noActiveSuffix:
+                return "This relay does not have an active Noctweb suffix."
+            case .ownershipMismatch:
+                return "The persisted suffix is not owned by this relay identity."
+            case .sequenceExhausted:
+                return "The relay identity lifecycle sequence is exhausted."
+            case .endpointUnavailable:
+                return "Configure a valid listener or advertised endpoint before rotating this relay identity."
+            case .capabilityUnavailable:
+                return "The relay capability manifest could not be created."
+            }
+        }
+    }
+
     @Published var host: String = "0.0.0.0"
     @Published var port: String = "9339"
     @Published var relayKind: RelayKind = .standard
@@ -710,6 +775,9 @@ final class ServerViewModel: ObservableObject {
     @Published var openFederationDHTMaxQueryRecords: String = "256"
     @Published var relayPeerExchangeLimit: String = "12"
     @Published var advertisedEndpoint: String = ""
+    @Published var noctwebRelaySuffix: String = ""
+    @Published private(set) var claimedNoctwebSuffix: String?
+    @Published private(set) var namespacePropagationStatus: String?
     @Published var federationSourceURL: String = ""
     @Published var federationSourceStatus: String?
     @Published var federationSourceLastUpdated: Date?
@@ -765,10 +833,12 @@ final class ServerViewModel: ObservableObject {
 
     private let defaultStoreURL: URL
     private let settingsURL: URL
+    private let namespaceLedgerURL: URL
     private var store: RelayStore
     private var server: RelayServer
     private var opaqueRouteStore = OpaqueRouteRelayStoreV2()
     private var opaqueRouteSnapshotVault: RelayOpaqueRouteSnapshotVault?
+    private var relayIdentityKeyMaterial: RelayIdentityKeyMaterialV1?
     let softwareVersion: String
     private let defaultRelayPort: UInt16 = 9339
     private var settingsCancellables: Set<AnyCancellable> = []
@@ -794,14 +864,30 @@ final class ServerViewModel: ObservableObject {
         permissionProbeHasRun
     }
 
+    var relayIdentityID: String {
+        relayIdentityKeyMaterial?.relayID.rawValue ?? "Unavailable"
+    }
+
     init() {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NoctweaveRelay", isDirectory: true)
         let storeURL = directory.appendingPathComponent("relay_store.sqlite")
         self.defaultStoreURL = storeURL
         self.settingsURL = directory.appendingPathComponent("relay_settings.json")
+        self.namespaceLedgerURL = directory.appendingPathComponent(
+            "noctweb_namespace_v1.json"
+        )
         self.storePath = storeURL.path
         self.softwareVersion = Self.makeSoftwareVersion()
+        do {
+            self.relayIdentityKeyMaterial = try Self.loadOrCreateRelayIdentity(
+                namespaceLedgerURL: namespaceLedgerURL
+            )
+        } catch {
+            self.relayIdentityKeyMaterial = nil
+            self.secretStoreFailure =
+                "The persistent relay identity could not be loaded from Keychain."
+        }
         let bootstrapConfiguration = RelayConfiguration()
         self.store = RelayStore(
             storeURL: storeURL,
@@ -809,13 +895,19 @@ final class ServerViewModel: ObservableObject {
             temporalBucketScheduleSeconds: bootstrapConfiguration.temporalBucketScheduleSeconds,
             attachmentBlobStore: nil
         )
-        self.server = RelayServer(store: store, configuration: bootstrapConfiguration)
+        self.server = RelayServer(
+            store: store,
+            configuration: bootstrapConfiguration,
+            relayIdentity: relayIdentityKeyMaterial
+        )
         server.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event: event)
             }
         }
+        configureNamespacePersistence(on: server)
         loadPersistedSettingsIfAvailable()
+        refreshClaimedNoctwebSuffixFromDisk()
         rebuildRuntimeWithCurrentSettings()
         bindSettingsPersistence()
         persistSettings()
@@ -873,6 +965,12 @@ final class ServerViewModel: ObservableObject {
                 return
             }
         }
+        do {
+            try prepareNoctwebSuffixForStart()
+        } catch {
+            lastError = error.localizedDescription
+            return
+        }
         let resolvedStoreURL: URL?
         do {
             resolvedStoreURL = try validatedStoreURL()
@@ -922,8 +1020,10 @@ final class ServerViewModel: ObservableObject {
         server = RelayServer(
             store: store,
             opaqueRouteStore: runtimeOpaqueRouteStore,
-            configuration: configuration
+            configuration: configuration,
+            relayIdentity: relayIdentityKeyMaterial
         )
+        configureNamespacePersistence(on: server)
         if let snapshotVault {
             server.onOpaqueRouteStateSnapshot = { snapshot in
                 try await snapshotVault.save(snapshot)
@@ -942,6 +1042,13 @@ final class ServerViewModel: ObservableObject {
                 if let snapshot = try await snapshotVault?.load() {
                     try await runtimeOpaqueRouteStore.restore(snapshot)
                 }
+                if let namespaceRecords = try Self.loadNamespaceRecords(
+                    from: namespaceLedgerURL
+                ) {
+                    try await server.restoreNoctwebNamespaceRecords(
+                        namespaceRecords
+                    )
+                }
                 try server.start(host: trimmedHost, port: portValue)
                 isRunning = true
             } catch {
@@ -958,6 +1065,10 @@ final class ServerViewModel: ObservableObject {
                 if let snapshotVault {
                     try await snapshotVault.save(try await stoppingServer.opaqueRouteStateSnapshot())
                 }
+                try Self.saveNamespaceRecords(
+                    await stoppingServer.noctwebNamespaceRecords(),
+                    to: namespaceLedgerURL
+                )
             } catch {
                 appendRedactedLog(
                     "Failed to persist opaque-route state during shutdown",
@@ -967,6 +1078,219 @@ final class ServerViewModel: ObservableObject {
             }
             stoppingServer.stop()
             isRunning = false
+        }
+    }
+
+    func rotateRelayIdentity() {
+        guard !isRunning else {
+            lastError = NoctwebLifecycleError.relayMustBeStopped.localizedDescription
+            return
+        }
+        guard let oldIdentity = relayIdentityKeyMaterial else {
+            lastError = NoctwebLifecycleError.identityUnavailable.localizedDescription
+            return
+        }
+        do {
+            let originalRecords = try Self.loadNamespaceRecords(
+                from: namespaceLedgerURL
+            ) ?? []
+            let owned = activeNamespaceRecords(
+                in: originalRecords,
+                identity: oldIdentity
+            )
+            guard owned.count <= 1 else {
+                throw NoctwebLifecycleError.multipleOwnedSuffixes
+            }
+
+            let newIdentity = try RelayIdentityKeyMaterialV1.generate()
+            var propagationRequest: RelayRequest?
+            if let active = owned.first {
+                guard active.ownershipSequence
+                        < RelayIdentityV1.maximumSequence else {
+                    throw NoctwebLifecycleError.sequenceExhausted
+                }
+                noctwebRelaySuffix = active.suffix.rawValue
+                let sequence = active.ownershipSequence + 1
+                let issuedAt = Date()
+                let rotation = try RelayIdentityRotationV1.signed(
+                    from: oldIdentity,
+                    to: newIdentity,
+                    sequence: sequence,
+                    issuedAt: issuedAt
+                )
+                let claim = try makeRelayIdentityClaim(
+                    using: newIdentity,
+                    suffix: active.suffix,
+                    sequence: sequence,
+                    issuedAt: rotation.issuedAt
+                )
+                var ledger = try NoctwebNamespaceLedgerV1(
+                    records: originalRecords
+                )
+                try ledger.rotate(
+                    rotation,
+                    to: claim,
+                    now: rotation.issuedAt
+                )
+
+                try Self.saveRelayIdentity(
+                    newIdentity,
+                    account: .pendingRelayIdentityKey
+                )
+                do {
+                    try Self.saveNamespaceRecords(
+                        ledger.records,
+                        to: namespaceLedgerURL
+                    )
+                } catch {
+                    try? RelaySecretStore.save(
+                        "",
+                        account: .pendingRelayIdentityKey
+                    )
+                    throw error
+                }
+                try Self.saveRelayIdentity(
+                    newIdentity,
+                    account: .relayIdentityKey
+                )
+                try RelaySecretStore.save(
+                    "",
+                    account: .pendingRelayIdentityKey
+                )
+                propagationRequest = .rotateNoctwebNamespaceV1(
+                    NoctwebNamespaceRotationRequestV1(
+                        rotation: rotation,
+                        newIdentity: claim
+                    )
+                )
+            } else {
+                try Self.saveRelayIdentity(
+                    newIdentity,
+                    account: .relayIdentityKey
+                )
+            }
+
+            relayIdentityKeyMaterial = newIdentity
+            refreshClaimedNoctwebSuffixFromDisk()
+            rebuildRuntimeWithCurrentSettings()
+            persistSettings()
+            appendLog(
+                "Relay identity rotated to \(newIdentity.relayID.rawValue)."
+            )
+            if let propagationRequest {
+                propagateNoctwebLifecycleRequest(propagationRequest)
+            }
+        } catch {
+            lastError =
+                "Relay identity rotation failed: \(error.localizedDescription)"
+        }
+    }
+
+    func releaseNoctwebSuffix() {
+        guard !isRunning else {
+            lastError = NoctwebLifecycleError.relayMustBeStopped.localizedDescription
+            return
+        }
+        guard let identity = relayIdentityKeyMaterial else {
+            lastError = NoctwebLifecycleError.identityUnavailable.localizedDescription
+            return
+        }
+        do {
+            let records = try Self.loadNamespaceRecords(
+                from: namespaceLedgerURL
+            ) ?? []
+            let owned = activeNamespaceRecords(
+                in: records,
+                identity: identity
+            )
+            guard owned.count <= 1 else {
+                throw NoctwebLifecycleError.multipleOwnedSuffixes
+            }
+            guard let active = owned.first else {
+                throw NoctwebLifecycleError.noActiveSuffix
+            }
+            guard active.ownerRelayID == identity.relayID else {
+                throw NoctwebLifecycleError.ownershipMismatch
+            }
+            guard active.ownershipSequence
+                    < RelayIdentityV1.maximumSequence else {
+                throw NoctwebLifecycleError.sequenceExhausted
+            }
+            let release = try NoctwebNamespaceReleaseV1.signed(
+                suffix: active.suffix,
+                owner: identity,
+                sequence: active.ownershipSequence + 1
+            )
+            var ledger = try NoctwebNamespaceLedgerV1(records: records)
+            try ledger.release(release, now: release.issuedAt)
+            try Self.saveNamespaceRecords(
+                ledger.records,
+                to: namespaceLedgerURL
+            )
+            noctwebRelaySuffix = ""
+            claimedNoctwebSuffix = nil
+            rebuildRuntimeWithCurrentSettings()
+            persistSettings()
+            appendLog(
+                "Permanently released and tombstoned \(active.suffix.rawValue)."
+            )
+            propagateNoctwebLifecycleRequest(
+                .releaseNoctwebNamespaceV1(release)
+            )
+        } catch {
+            lastError =
+                "Noctweb suffix release failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func propagateNoctwebLifecycleRequest(
+        _ request: RelayRequest
+    ) {
+        let configuration = buildConfiguration()
+        let candidates =
+            configuration.federationAllowList
+                + (configuration.federationCoordinatorEndpoints ?? [])
+        let ownEndpointKey = configuration.advertisedEndpoint.map {
+            "\($0.host.lowercased()):\($0.port):\($0.useTLS):\($0.transport.rawValue)"
+        }
+        var seen = Set<String>()
+        let endpoints = candidates.filter { endpoint in
+            let key =
+                "\(endpoint.host.lowercased()):\(endpoint.port):\(endpoint.useTLS):\(endpoint.transport.rawValue)"
+            return key != ownEndpointKey && seen.insert(key).inserted
+        }
+        guard !endpoints.isEmpty else {
+            namespacePropagationStatus =
+                configuration.federation.mode == .solo
+                    ? "Local namespace updated."
+                    : "Namespace update retained locally; no configured federation peer was available."
+            return
+        }
+        namespacePropagationStatus =
+            "Propagating namespace update to \(endpoints.count) peer(s)…"
+        Task {
+            var accepted = 0
+            for endpoint in endpoints {
+                do {
+                    let response = try await RelayClient(
+                        endpoint: endpoint
+                    ).send(request)
+                    if response.status == .success {
+                        accepted += 1
+                    }
+                } catch {
+                    continue
+                }
+            }
+            await MainActor.run {
+                namespacePropagationStatus =
+                    "Namespace update accepted by \(accepted) of \(endpoints.count) configured peer(s)."
+                if accepted < endpoints.count {
+                    appendLog(
+                        "Namespace propagation remains pending on \(endpoints.count - accepted) peer(s)."
+                    )
+                }
+            }
         }
     }
 
@@ -1228,6 +1552,7 @@ final class ServerViewModel: ObservableObject {
             curatedCoordinatorQuorum: curatedQuorum,
             curatedRequireSignedDirectory: curatedRequireSignedDirectory,
             advertisedEndpoint: advertisedRelayEndpoint,
+            noctwebRelaySuffix: configuredNoctwebSuffix(),
             federationAllowList: allowList,
             allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
             rendezvousTransportEnabled: effectiveRendezvousTransportEnabled
@@ -1649,6 +1974,158 @@ final class ServerViewModel: ObservableObject {
         try? RelayEndpointParser.parse(value, defaultTCPPort: defaultRelayPort)
     }
 
+    private func configuredNoctwebSuffix() -> NoctwebRelaySuffixV1? {
+        let trimmed = noctwebRelaySuffix
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !trimmed.isEmpty else { return nil }
+        let canonical = trimmed.hasPrefix(".") ? trimmed : ".\(trimmed)"
+        return NoctwebRelaySuffixV1(rawValue: canonical)
+    }
+
+    private func prepareNoctwebSuffixForStart() throws {
+        let trimmed = noctwebRelaySuffix
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedSuffix: NoctwebRelaySuffixV1?
+        if trimmed.isEmpty {
+            requestedSuffix = nil
+        } else {
+            guard let parsed = configuredNoctwebSuffix() else {
+                throw NoctwebLifecycleError.invalidSuffix
+            }
+            requestedSuffix = parsed
+            noctwebRelaySuffix = parsed.rawValue
+        }
+        if federationMode != .solo, requestedSuffix == nil {
+            throw NoctwebLifecycleError.federatedSuffixRequired
+        }
+
+        let records = try Self.loadNamespaceRecords(
+            from: namespaceLedgerURL
+        ) ?? []
+        let owned = activeNamespaceRecords(
+            in: records,
+            identity: relayIdentityKeyMaterial
+        )
+        guard owned.count <= 1 else {
+            throw NoctwebLifecycleError.multipleOwnedSuffixes
+        }
+        if let active = owned.first {
+            claimedNoctwebSuffix = active.suffix.rawValue
+            guard requestedSuffix == active.suffix else {
+                throw NoctwebLifecycleError.activeSuffixRequired(
+                    active.suffix.rawValue
+                )
+            }
+        } else {
+            claimedNoctwebSuffix = nil
+        }
+
+        if let requestedSuffix,
+           let existing = records.first(where: {
+               $0.suffix == requestedSuffix
+           }) {
+            if existing.status == .tombstoned {
+                throw NoctwebLifecycleError.suffixTombstoned
+            }
+            guard existing.ownerRelayID
+                    == relayIdentityKeyMaterial?.relayID else {
+                throw NoctwebLifecycleError.suffixAlreadyOwned
+            }
+        }
+    }
+
+    private func refreshClaimedNoctwebSuffixFromDisk() {
+        do {
+            let records = try Self.loadNamespaceRecords(
+                from: namespaceLedgerURL
+            ) ?? []
+            let owned = activeNamespaceRecords(
+                in: records,
+                identity: relayIdentityKeyMaterial
+            )
+            guard owned.count <= 1 else {
+                claimedNoctwebSuffix = nil
+                appendLog(
+                    "Noctweb namespace ledger contains multiple active suffixes for this relay identity."
+                )
+                return
+            }
+            claimedNoctwebSuffix = owned.first?.suffix.rawValue
+            if noctwebRelaySuffix
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty,
+               let suffix = claimedNoctwebSuffix {
+                noctwebRelaySuffix = suffix
+            }
+        } catch {
+            claimedNoctwebSuffix = nil
+            appendRedactedLog(
+                "Failed to inspect Noctweb namespace state",
+                error: error,
+                fallback: "Noctweb namespace state could not be read."
+            )
+        }
+    }
+
+    private func activeNamespaceRecords(
+        in records: [NoctwebNamespaceRecordV1],
+        identity: RelayIdentityKeyMaterialV1?
+    ) -> [NoctwebNamespaceRecordV1] {
+        guard let identity else { return [] }
+        return records.filter {
+            $0.status == .active && $0.ownerRelayID == identity.relayID
+        }
+    }
+
+    private func makeRelayIdentityClaim(
+        using identity: RelayIdentityKeyMaterialV1,
+        suffix: NoctwebRelaySuffixV1,
+        sequence: Int,
+        issuedAt: Date
+    ) throws -> SignedRelayIdentityClaimV1 {
+        let configuration = buildConfiguration()
+        let endpoint: RelayEndpoint
+        if let advertised = configuration.advertisedEndpoint {
+            endpoint = advertised
+        } else {
+            guard let portValue = UInt16(port) else {
+                throw NoctwebLifecycleError.endpointUnavailable
+            }
+            let trimmedHost = host
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedHost.isEmpty else {
+                throw NoctwebLifecycleError.endpointUnavailable
+            }
+            let identityHost =
+                trimmedHost == "0.0.0.0" || trimmedHost == "::"
+                    ? "127.0.0.1"
+                    : trimmedHost
+            endpoint = RelayEndpoint(
+                host: identityHost,
+                port: portValue,
+                useTLS:
+                    configuration.advertisedTLSEnabled
+                        ?? configuration.tlsEnabled,
+                transport: configuration.transport
+            )
+        }
+        guard let capabilities = configuration.makeInfo(
+            now: issuedAt
+        ).protocolCapabilities else {
+            throw NoctwebLifecycleError.capabilityUnavailable
+        }
+        return try identity.makeSignedClaim(
+            sequence: sequence,
+            relayKind: configuration.kind,
+            federation: configuration.federation,
+            advertisedEndpoints: [endpoint],
+            noctwebSuffix: suffix,
+            capabilities: capabilities,
+            issuedAt: issuedAt
+        )
+    }
+
     func chooseTLSIdentityPath() {
 #if canImport(AppKit)
         let panel = NSOpenPanel()
@@ -1683,6 +2160,65 @@ final class ServerViewModel: ObservableObject {
         }
     }
 
+    private static func loadOrCreateRelayIdentity(
+        namespaceLedgerURL: URL
+    ) throws -> RelayIdentityKeyMaterialV1 {
+        if let pending = try loadRelayIdentity(
+            account: .pendingRelayIdentityKey
+        ) {
+            let records = try loadNamespaceRecords(
+                from: namespaceLedgerURL
+            ) ?? []
+            let ledgerUsesPendingIdentity = records.contains {
+                $0.status == .active && $0.ownerRelayID == pending.relayID
+            }
+            if ledgerUsesPendingIdentity {
+                try saveRelayIdentity(pending, account: .relayIdentityKey)
+                try RelaySecretStore.save(
+                    "",
+                    account: .pendingRelayIdentityKey
+                )
+                return pending
+            }
+            try RelaySecretStore.save(
+                "",
+                account: .pendingRelayIdentityKey
+            )
+        }
+        if let existing = try loadRelayIdentity(
+            account: .relayIdentityKey
+        ) {
+            return existing
+        }
+        let generated = try RelayIdentityKeyMaterialV1.generate()
+        try saveRelayIdentity(generated, account: .relayIdentityKey)
+        return generated
+    }
+
+    private static func loadRelayIdentity(
+        account: RelaySecretStore.Account
+    ) throws -> RelayIdentityKeyMaterialV1? {
+        guard let encoded = try RelaySecretStore.load(account: account),
+              let serialized = Data(base64Encoded: encoded) else {
+            return nil
+        }
+        return try NoctweaveCoder.decode(
+            RelayIdentityKeyMaterialV1.self,
+            from: serialized
+        )
+    }
+
+    private static func saveRelayIdentity(
+        _ identity: RelayIdentityKeyMaterialV1,
+        account: RelaySecretStore.Account
+    ) throws {
+        try RelaySecretStore.save(
+            NoctweaveCoder.encode(identity, sortedKeys: true)
+                .base64EncodedString(),
+            account: account
+        )
+    }
+
     private func rebuildRuntimeWithCurrentSettings() {
         let configuration = buildConfiguration()
         store = RelayStore(
@@ -1693,13 +2229,91 @@ final class ServerViewModel: ObservableObject {
         server = RelayServer(
             store: store,
             opaqueRouteStore: opaqueRouteStore,
-            configuration: configuration
+            configuration: configuration,
+            relayIdentity: relayIdentityKeyMaterial
         )
+        configureNamespacePersistence(on: server)
         server.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event: event)
             }
         }
+    }
+
+    private func configureNamespacePersistence(
+        on server: RelayServer
+    ) {
+        let url = namespaceLedgerURL
+        let owner = ServerViewModelWeakReference(self)
+        server.onNoctwebNamespaceStateSnapshot = { records in
+            do {
+                try Self.saveNamespaceRecords(records, to: url)
+                await MainActor.run {
+                    owner.value?.refreshClaimedNoctwebSuffixFromDisk()
+                }
+            } catch {
+                await MainActor.run {
+                    owner.value?.appendRedactedLog(
+                        "Failed to persist Noctweb namespace state",
+                        error: error,
+                        fallback: "Noctweb namespace state could not be saved."
+                    )
+                }
+            }
+        }
+    }
+
+    nonisolated private static func saveNamespaceRecords(
+        _ records: [NoctwebNamespaceRecordV1],
+        to url: URL
+    ) throws {
+        let envelope = PersistedNoctwebNamespaceLedger(
+            version: NoctwebNamespaceConsensusV1.version,
+            records: records
+        )
+        let data = try NoctweaveCoder.encode(
+            envelope,
+            sortedKeys: true
+        )
+        let directory = url.deletingLastPathComponent()
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        }
+        try data.write(to: url, options: [.atomic])
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: url.path
+        )
+    }
+
+    nonisolated private static func loadNamespaceRecords(
+        from url: URL
+    ) throws -> [NoctwebNamespaceRecordV1]? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        let values = try url.resourceValues(
+            forKeys: [.isRegularFileKey, .fileSizeKey]
+        )
+        guard values.isRegularFile == true,
+              let size = values.fileSize,
+              (1...8_000_000).contains(size) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let envelope = try NoctweaveCoder.decode(
+            PersistedNoctwebNamespaceLedger.self,
+            from: Data(contentsOf: url, options: [.mappedIfSafe])
+        )
+        guard envelope.version == NoctwebNamespaceConsensusV1.version else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        _ = try NoctwebNamespaceLedgerV1(
+            records: envelope.records
+        )
+        return envelope.records
     }
 
     private struct PersistedSettings: Codable {
@@ -1724,6 +2338,7 @@ final class ServerViewModel: ObservableObject {
         var openFederationDHTMaxQueryRecords: String?
         var relayPeerExchangeLimit: String?
         var advertisedEndpoint: String
+        var noctwebRelaySuffix: String?
         var federationSourceURL: String
         var temporalBucketMode: RelayTemporalBucketMode?
         var temporalBucketMinutes: String
@@ -1786,6 +2401,7 @@ final class ServerViewModel: ObservableObject {
             $openFederationDHTMaxQueryRecords.map { _ in () }.eraseToAnyPublisher(),
             $relayPeerExchangeLimit.map { _ in () }.eraseToAnyPublisher(),
             $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
+            $noctwebRelaySuffix.map { _ in () }.eraseToAnyPublisher(),
             $federationSourceURL.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMode.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMinutes.map { _ in () }.eraseToAnyPublisher(),
@@ -1859,6 +2475,7 @@ final class ServerViewModel: ObservableObject {
             $openFederationDHTMaxQueryRecords.map { _ in () }.eraseToAnyPublisher(),
             $relayPeerExchangeLimit.map { _ in () }.eraseToAnyPublisher(),
             $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
+            $noctwebRelaySuffix.map { _ in () }.eraseToAnyPublisher(),
             $coordinatorRegistrationToken.map { _ in () }.eraseToAnyPublisher()
         ]
 
@@ -1897,6 +2514,7 @@ final class ServerViewModel: ObservableObject {
             openFederationDHTMaxQueryRecords: openFederationDHTMaxQueryRecords,
             relayPeerExchangeLimit: relayPeerExchangeLimit,
             advertisedEndpoint: advertisedEndpoint,
+            noctwebRelaySuffix: noctwebRelaySuffix,
             federationSourceURL: federationSourceURL,
             temporalBucketMode: temporalBucketMode,
             temporalBucketMinutes: temporalBucketMinutes,
@@ -2004,6 +2622,7 @@ final class ServerViewModel: ObservableObject {
             openFederationDHTMaxQueryRecords = persisted.openFederationDHTMaxQueryRecords ?? "256"
             relayPeerExchangeLimit = persisted.relayPeerExchangeLimit ?? "12"
             advertisedEndpoint = persisted.advertisedEndpoint
+            noctwebRelaySuffix = persisted.noctwebRelaySuffix ?? ""
             federationSourceURL = persisted.federationSourceURL
             temporalBucketMinutes = persisted.temporalBucketMinutes
             temporalBucketScheduleMinutes = persisted.temporalBucketScheduleMinutes
