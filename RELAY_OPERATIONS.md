@@ -33,6 +33,8 @@ Important: kind is descriptive metadata. Federation is an operator-plane discove
   - Descriptors must report `manual` mode and a matching federation name when one is configured.
   - No coordinator, DHT, quorum, or peer exchange is used.
   - The relay may start with an empty node list.
+  - Every listed standard relay is probed directly. Adding or removing one
+    updates the live directory without restarting the relay.
 - `curated`
   - Uses allow lists, coordinator quorum, freshness policy, and optional signed directories to publish a bounded relay directory.
   - Descriptors must report `curated` mode and a matching federation name when one is configured.
