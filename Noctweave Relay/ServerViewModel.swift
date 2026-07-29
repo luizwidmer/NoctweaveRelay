@@ -543,6 +543,7 @@ private enum RelaySecretStore {
         case opaqueRouteSnapshotKey = "opaque-route-snapshot-key-v2"
         case relayIdentityKey = "relay-identity-key-v1"
         case pendingRelayIdentityKey = "relay-identity-key-pending-v1"
+        case noctwebHostSigningKey = "noctweb-host-signing-key-v1"
     }
 
     private static let service = "com.noctweave.relay.configuration"
@@ -625,6 +626,7 @@ private enum RelaySecretStore {
         case opaqueRouteSnapshotKey
         case relayIdentityKey
         case pendingRelayIdentityKey
+        case noctwebHostSigningKey
     }
 
     static func load(account: Account) throws -> String? { nil }
@@ -711,6 +713,7 @@ final class ServerViewModel: ObservableObject {
         case identityUnavailable
         case invalidSuffix
         case federatedSuffixRequired
+        case hostingSuffixRequired
         case activeSuffixRequired(String)
         case multipleOwnedSuffixes
         case suffixAlreadyOwned
@@ -731,6 +734,8 @@ final class ServerViewModel: ObservableObject {
                 return "Enter a suffix such as .atelier using lowercase letters, numbers, or hyphens."
             case .federatedSuffixRequired:
                 return "Federated relays require a permanent Noctweb suffix so peers can authenticate routing and namespace ownership."
+            case .hostingSuffixRequired:
+                return "Noctweb hosting requires a permanent relay suffix such as .atelier."
             case .activeSuffixRequired(let suffix):
                 return "\(suffix) is already assigned to this relay. Release it explicitly before choosing another suffix."
             case .multipleOwnedSuffixes:
@@ -776,7 +781,9 @@ final class ServerViewModel: ObservableObject {
     @Published var relayPeerExchangeLimit: String = "12"
     @Published var advertisedEndpoint: String = ""
     @Published var noctwebRelaySuffix: String = ""
+    @Published var noctwebHostingEnabled: Bool = false
     @Published private(set) var claimedNoctwebSuffix: String?
+    @Published private(set) var noctwebHostSigningPublicKey: Data?
     @Published private(set) var namespacePropagationStatus: String?
     @Published var federationSourceURL: String = ""
     @Published var federationSourceStatus: String?
@@ -839,6 +846,7 @@ final class ServerViewModel: ObservableObject {
     private var opaqueRouteStore = OpaqueRouteRelayStoreV2()
     private var opaqueRouteSnapshotVault: RelayOpaqueRouteSnapshotVault?
     private var relayIdentityKeyMaterial: RelayIdentityKeyMaterialV1?
+    private var noctwebHostStore: RelayNoctwebHostStore?
     let softwareVersion: String
     private let defaultRelayPort: UInt16 = 9339
     private var settingsCancellables: Set<AnyCancellable> = []
@@ -866,6 +874,29 @@ final class ServerViewModel: ObservableObject {
 
     var relayIdentityID: String {
         relayIdentityKeyMaterial?.relayID.rawValue ?? "Unavailable"
+    }
+
+    var effectiveNoctwebHostingEnabled: Bool {
+        relayKind == .host || noctwebHostingEnabled
+    }
+
+    var noctwebHostSigningIdentity: String {
+        guard let noctwebHostSigningPublicKey else {
+            return effectiveNoctwebHostingEnabled
+                ? "Created securely when the relay starts"
+                : "Not configured"
+        }
+        return noctwebHostSigningPublicKey.base64EncodedString()
+    }
+
+    var noctwebHostStorageDescription: String {
+        guard effectiveNoctwebHostingEnabled else {
+            return "No Noctweb objects are accepted."
+        }
+        guard let storeURL = resolvedStoreURL() else {
+            return "RAM only · cleared when the relay stops."
+        }
+        return noctwebHostDirectoryURL(for: storeURL).path
     }
 
     init() {
@@ -979,6 +1010,12 @@ final class ServerViewModel: ObservableObject {
             return
         }
         let configuration = buildConfiguration()
+        if effectiveNoctwebHostingEnabled,
+           relayKind != .standard,
+           relayKind != .host {
+            lastError = "Noctweb hosting is available on standard or host relays."
+            return
+        }
         if federationMode == .manual {
             guard relayKind == .standard else {
                 lastError = "Manual federation uses standard relays only. Set Relay Kind to Standard."
@@ -1008,6 +1045,22 @@ final class ServerViewModel: ObservableObject {
             lastError = redactedRelayAppError(error, fallback: "Opaque-route storage protection is unavailable.")
             return
         }
+        let runtimeNoctwebHostStore: RelayNoctwebHostStore?
+        do {
+            runtimeNoctwebHostStore = try makeNoctwebHostStore(
+                storeURL: resolvedStoreURL
+            )
+        } catch {
+            lastError = redactedRelayAppError(
+                error,
+                fallback:
+                    "Noctweb host storage or its signing identity is unavailable."
+            )
+            return
+        }
+        noctwebHostStore = runtimeNoctwebHostStore
+        noctwebHostSigningPublicKey =
+            runtimeNoctwebHostStore?.signingPublicKey
         let runtimeOpaqueRouteStore = OpaqueRouteRelayStoreV2()
         opaqueRouteStore = runtimeOpaqueRouteStore
         opaqueRouteSnapshotVault = snapshotVault
@@ -1021,7 +1074,8 @@ final class ServerViewModel: ObservableObject {
             store: store,
             opaqueRouteStore: runtimeOpaqueRouteStore,
             configuration: configuration,
-            relayIdentity: relayIdentityKeyMaterial
+            relayIdentity: relayIdentityKeyMaterial,
+            noctwebHostStore: runtimeNoctwebHostStore
         )
         configureNamespacePersistence(on: server)
         if let snapshotVault {
@@ -1553,6 +1607,7 @@ final class ServerViewModel: ObservableObject {
             curatedRequireSignedDirectory: curatedRequireSignedDirectory,
             advertisedEndpoint: advertisedRelayEndpoint,
             noctwebRelaySuffix: configuredNoctwebSuffix(),
+            netHostEnabled: effectiveNoctwebHostingEnabled,
             federationAllowList: allowList,
             allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
             rendezvousTransportEnabled: effectiveRendezvousTransportEnabled
@@ -1621,6 +1676,50 @@ final class ServerViewModel: ObservableObject {
             .deletingPathExtension()
             .appendingPathExtension("opaque-routes.nwstate")
         return try RelayOpaqueRouteSnapshotVault(fileURL: snapshotURL, keyData: keyData)
+    }
+
+    private func makeNoctwebHostStore(
+        storeURL: URL?
+    ) throws -> RelayNoctwebHostStore? {
+        guard effectiveNoctwebHostingEnabled else {
+            return nil
+        }
+        let keyData: Data
+        if let encoded = try RelaySecretStore.load(
+            account: .noctwebHostSigningKey
+        ),
+        let existing = Data(base64Encoded: encoded),
+        existing.count == 32 {
+            keyData = existing
+        } else {
+            let generated =
+                RelayNoctwebHostStore.generateSigningPrivateKey()
+            try RelaySecretStore.save(
+                generated.base64EncodedString(),
+                account: .noctwebHostSigningKey
+            )
+            keyData = generated
+        }
+        let hostStore = try RelayNoctwebHostStore(
+            directoryURL: storeURL.map(noctwebHostDirectoryURL(for:)),
+            signingPrivateKeyData: keyData
+        )
+        try hostStore.load()
+        return hostStore
+    }
+
+    private func noctwebHostDirectoryURL(
+        for storeURL: URL
+    ) -> URL {
+        let baseName = storeURL
+            .deletingPathExtension()
+            .lastPathComponent
+        return storeURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(baseName)-noctweb-host",
+                isDirectory: true
+            )
     }
 
     private func makeAttachmentBlobStore() throws -> AttachmentBlobStore? {
@@ -1999,6 +2098,10 @@ final class ServerViewModel: ObservableObject {
         if federationMode != .solo, requestedSuffix == nil {
             throw NoctwebLifecycleError.federatedSuffixRequired
         }
+        if effectiveNoctwebHostingEnabled,
+           requestedSuffix == nil {
+            throw NoctwebLifecycleError.hostingSuffixRequired
+        }
 
         let records = try Self.loadNamespaceRecords(
             from: namespaceLedgerURL
@@ -2339,6 +2442,7 @@ final class ServerViewModel: ObservableObject {
         var relayPeerExchangeLimit: String?
         var advertisedEndpoint: String
         var noctwebRelaySuffix: String?
+        var noctwebHostingEnabled: Bool?
         var federationSourceURL: String
         var temporalBucketMode: RelayTemporalBucketMode?
         var temporalBucketMinutes: String
@@ -2402,6 +2506,7 @@ final class ServerViewModel: ObservableObject {
             $relayPeerExchangeLimit.map { _ in () }.eraseToAnyPublisher(),
             $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
             $noctwebRelaySuffix.map { _ in () }.eraseToAnyPublisher(),
+            $noctwebHostingEnabled.map { _ in () }.eraseToAnyPublisher(),
             $federationSourceURL.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMode.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMinutes.map { _ in () }.eraseToAnyPublisher(),
@@ -2515,6 +2620,7 @@ final class ServerViewModel: ObservableObject {
             relayPeerExchangeLimit: relayPeerExchangeLimit,
             advertisedEndpoint: advertisedEndpoint,
             noctwebRelaySuffix: noctwebRelaySuffix,
+            noctwebHostingEnabled: noctwebHostingEnabled,
             federationSourceURL: federationSourceURL,
             temporalBucketMode: temporalBucketMode,
             temporalBucketMinutes: temporalBucketMinutes,
@@ -2623,6 +2729,8 @@ final class ServerViewModel: ObservableObject {
             relayPeerExchangeLimit = persisted.relayPeerExchangeLimit ?? "12"
             advertisedEndpoint = persisted.advertisedEndpoint
             noctwebRelaySuffix = persisted.noctwebRelaySuffix ?? ""
+            noctwebHostingEnabled =
+                persisted.noctwebHostingEnabled ?? false
             federationSourceURL = persisted.federationSourceURL
             temporalBucketMinutes = persisted.temporalBucketMinutes
             temporalBucketScheduleMinutes = persisted.temporalBucketScheduleMinutes

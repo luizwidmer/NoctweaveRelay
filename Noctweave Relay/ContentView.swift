@@ -612,44 +612,104 @@ struct ContentView: View {
                     if selectedPanel == .web {
                     serverCard(
                         title: "Noctweb",
-                        subtitle: "Web hosting capability and authoring surface",
+                        subtitle: "Signed site hosting for this relay suffix",
                         icon: "globe"
                     ) {
-                        HStack(spacing: 12) {
+                        HStack(alignment: .center, spacing: 14) {
+                            Image(
+                                systemName:
+                                    model.effectiveNoctwebHostingEnabled
+                                        ? "network.badge.shield.half.filled"
+                                        : "network.slash"
+                            )
+                            .font(.title2)
+                            .foregroundStyle(
+                                model.effectiveNoctwebHostingEnabled
+                                    ? .mint
+                                    : .secondary
+                            )
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Native Relay Runtime")
-                                    .font(.subheadline.weight(.semibold))
-                                Text("Messaging, routing, federation, and storage")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                Text("Host Noctweb sites")
+                                    .font(.headline)
+                                Text(
+                                    model.effectiveNoctwebHostingEnabled
+                                        ? "Signed bundles and names are served by this relay."
+                                        : "Messaging continues without accepting website objects."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            statusBadge(
-                                "Messaging only",
-                                icon: "minus.circle.fill",
-                                color: .orange
+                            Spacer(minLength: 18)
+                            Toggle(
+                                "",
+                                isOn: $model.noctwebHostingEnabled
+                            )
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .tint(.mint)
+                            .disabled(
+                                model.isRunning
+                                    || model.relayKind == .host
+                                    || (
+                                        model.relayKind != .standard
+                                            && model.relayKind != .host
+                                    )
                             )
                         }
+                        .padding(14)
+                        .premiumSurface(
+                            cornerRadius: 14,
+                            tintOpacity:
+                                model.effectiveNoctwebHostingEnabled
+                                    ? 0.14
+                                    : 0.06
+                        )
 
                         Text(RelayRuntimePolicy.noctwebAvailabilityDescription)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        Divider().opacity(0.2)
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label("Full relay capability", systemImage: "checkmark.seal.fill")
+                        if model.effectiveNoctwebHostingEnabled {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label(
+                                    "Hosting runtime",
+                                    systemImage: "checkmark.seal.fill"
+                                )
                                 .font(.headline)
                                 .foregroundStyle(.mint)
-                            federationDetailRow("Protocol module", value: "nw.net-host@1")
-                            federationDetailRow("Operator surface", value: "/noctweb/ Publisher / Lab")
-                            federationDetailRow("Supported deployment", value: "Linux, Docker, or desktop Docker launcher")
-                            Text("A solo standard full relay can host Noctweb pages. The dedicated Noctweb Lab can publish through the same capability, while the built-in Publisher / Lab offers a browser-based operator workflow.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                federationDetailRow(
+                                    "Protocol module",
+                                    value: "nw.net-host@1"
+                                )
+                                federationDetailRow(
+                                    "Object storage",
+                                    value:
+                                        model
+                                        .noctwebHostStorageDescription
+                                )
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Host receipt identity")
+                                        .font(
+                                            .caption2.weight(
+                                                .semibold
+                                            )
+                                        )
+                                        .foregroundStyle(.secondary)
+                                    Text(
+                                        model
+                                            .noctwebHostSigningIdentity
+                                    )
+                                    .font(.caption.monospaced())
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
+                                }
+                            }
+                            .padding(14)
+                            .premiumSurface(
+                                cornerRadius: 14,
+                                tintOpacity: 0.10
+                            )
                         }
-                        .padding(14)
-                        .premiumSurface(cornerRadius: 14, tintOpacity: 0.10)
 
                         VStack(alignment: .leading, spacing: 12) {
                             Label(
@@ -728,7 +788,7 @@ struct ContentView: View {
                             }
 
                             Text(
-                                "The ML-DSA relay identity authenticates federation endpoints and namespace statements. Taking a relay offline never frees its suffix. Rotation is double-signed by the old and new keys. Release permanently tombstones the suffix, so it can never be claimed again."
+                                "The ML-DSA relay identity authenticates federation endpoints and namespace ownership. The separate host receipt key proves that stored publication bundles came from this runtime. Taking a relay offline never frees its suffix; release permanently tombstones it."
                             )
                             .font(.caption)
                             .foregroundStyle(.secondary)

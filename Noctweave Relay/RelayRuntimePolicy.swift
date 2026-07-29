@@ -2,11 +2,11 @@ import Foundation
 
 enum RelayRuntimePolicy {
     static let defaultRendezvousTransportEnabled = false
-    static let nativeNoctwebHostingAvailable = false
+    static let nativeNoctwebHostingAvailable = true
 
     static let noctwebAvailabilityDescription =
-        "This native control plane uses the lightweight relay runtime and does not serve nw.net-host@1. " +
-        "Run the full NoctweaveRelayServer or Docker Relay to host Noctweb pages and use its built-in Publisher / Lab."
+        "A standard native relay can advertise nw.net-host@1, store signed Noctweb publication bundles, and resolve names for its owned suffix. " +
+        "Publishing writes require loopback access, native TLS, or a trusted TLS reverse proxy."
 
     static func effectiveRendezvousTransportEnabled(
         configured: Bool,
