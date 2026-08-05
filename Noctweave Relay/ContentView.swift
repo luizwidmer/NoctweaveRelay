@@ -1082,10 +1082,11 @@ struct ContentView: View {
                 )
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(model.isRunning ? Color.green : Color.secondary)
-                Text(endpointPreview)
+                Text(sidebarEndpointPreview)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
                     .textSelection(.enabled)
             }
             .padding(12)
@@ -1471,6 +1472,15 @@ struct ContentView: View {
         return listener
     }
 
+    private var sidebarEndpointPreview: String {
+        let advertised = model.advertisedEndpoint
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !advertised.isEmpty {
+            return advertised
+        }
+        return endpointPreview
+    }
+
     private func statusBadge(_ text: String, icon: String, color: Color) -> some View {
         Label(text, systemImage: icon)
             .font(.caption.weight(.semibold))
@@ -1554,7 +1564,7 @@ private struct PremiumRelayBackground: View {
                     : [
                         theme.canvas,
                         Color.noctweaveIvory,
-                        Color.noctweaveSand.opacity(0.42)
+                        Color.noctweaveWine.opacity(0.18)
                     ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -1644,8 +1654,8 @@ private struct RelayGlassButtonStyle: ButtonStyle {
                                 LinearGradient(
                                     colors: prominent
                                         ? [
-                                            Color.noctweaveWine.opacity(configuration.isPressed ? 0.48 : 0.38),
-                                            Color.noctweaveCoral.opacity(configuration.isPressed ? 0.24 : 0.18)
+                                            Color.noctweaveCoral.opacity(configuration.isPressed ? 0.48 : 0.38),
+                                            Color.noctweaveWine.opacity(configuration.isPressed ? 0.24 : 0.18)
                                         ]
                                         : [
                                             theme.surfaceRaised.opacity(configuration.isPressed ? 0.92 : 0.76),
