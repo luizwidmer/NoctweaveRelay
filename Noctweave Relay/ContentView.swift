@@ -121,6 +121,7 @@ struct ContentView: View {
                             if selectedPanel == .overview {
                                 serverHeader
                                     .id(RelayPanel.overview)
+                                relayOverview
                             }
 
                             if selectedPanel == .profile {
@@ -1136,6 +1137,100 @@ struct ContentView: View {
         }
         .padding(16)
         .premiumSurface(cornerRadius: 20, tintOpacity: 0.22)
+    }
+
+    private var relayOverview: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
+                ],
+                spacing: 12
+            ) {
+                overviewSummaryCard(
+                    title: "Runtime",
+                    value: model.isRunning ? "Online" : "Stopped",
+                    detail: model.isRunning ? "Accepting relay traffic" : "Configuration is editable",
+                    icon: model.isRunning ? "checkmark.circle.fill" : "pause.circle",
+                    color: model.isRunning ? .green : .secondary
+                )
+                overviewSummaryCard(
+                    title: "Network role",
+                    value: "\(model.relayKind.rawValue.capitalized) · \(model.federationMode.rawValue.capitalized)",
+                    detail: model.federationMode == .solo ? "Independent relay" : "Federation routing enabled",
+                    icon: "point.3.connected.trianglepath.dotted",
+                    color: .noctweaveCoral
+                )
+                overviewSummaryCard(
+                    title: "Storage",
+                    value: model.storageMode == .disk ? "SQLite on disk" : "Memory only",
+                    detail: model.attachmentsEnabled ? "Attachments accepted" : "Text-only delivery",
+                    icon: "externaldrive.fill",
+                    color: .noctweaveWine
+                )
+                overviewSummaryCard(
+                    title: "Noctweb",
+                    value: model.effectiveNoctwebHostingEnabled ? "Hosting enabled" : "Disabled",
+                    detail: model.effectiveNoctwebHostingEnabled
+                        ? "Publisher and Lab routes advertised"
+                        : "Enable only when this relay should host sites",
+                    icon: "globe",
+                    color: model.effectiveNoctwebHostingEnabled ? .green : .secondary
+                )
+            }
+
+            HStack(spacing: 10) {
+                Text("Configure")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Button("Relay Profile") { selectedPanel = .profile }
+                    .relayButton()
+                Button("Storage") { selectedPanel = .storage }
+                    .relayButton()
+                Button("Noctweb") { selectedPanel = .web }
+                    .relayButton()
+                Button("Transport") { selectedPanel = .security }
+                    .relayButton()
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .premiumSurface(cornerRadius: 16, tintOpacity: 0.10)
+        }
+    }
+
+    private func overviewSummaryCard(
+        title: String,
+        value: String,
+        detail: String,
+        icon: String,
+        color: Color
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 36, height: 36)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.6)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+        .premiumSurface(cornerRadius: 17, tintOpacity: 0.10)
     }
 
     private var statusBadges: some View {
