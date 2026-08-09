@@ -823,11 +823,18 @@ final class ServerViewModel: ObservableObject {
     @Published var wakeJitterPermille: String = "250"
     @Published var wakeLongPollTimeoutSeconds: String = "60"
     @Published var iceServiceEnabled: Bool = false
+    @Published var callTraversalDeploymentMode: CallTraversalDeploymentMode = .managed
+    @Published var managedTurnHost: String = ""
+    @Published var managedTurnExternalIPAddress: String = ""
+    @Published var managedTurnListeningPort: String = "3478"
+    @Published var managedTurnMinimumRelayPort: String = "49160"
+    @Published var managedTurnMaximumRelayPort: String = "49200"
     @Published var iceURLs: String = ""
     @Published var turnRealm: String = "noctweave"
     @Published var turnCredentialLifetimeSeconds: String = "600"
     @Published var turnRelayOnlySupported: Bool = true
     @Published var turnSharedSecret: String = ""
+    @Published private(set) var managedCoturnState: ManagedCoturnState = .stopped
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
     @Published var storageMode: RelayStorageMode = .disk
@@ -883,6 +890,15 @@ final class ServerViewModel: ObservableObject {
         guard iceServiceEnabled else {
             return "No STUN or TURN service is advertised to call clients."
         }
+        if callTraversalDeploymentMode == .managed {
+            if managedCoturnState.isRunning {
+                return "Managed coturn is running and short-lived call credentials are issued by this relay."
+            }
+            guard configuredICEServiceDescriptor() != nil else {
+                return "Choose a reachable address so the app can finish managed call setup."
+            }
+            return "Managed coturn will start automatically with the relay."
+        }
         guard let descriptor = configuredICEServiceDescriptor() else {
             return "Complete the external STUN/TURN configuration before starting the relay."
         }
@@ -893,8 +909,52 @@ final class ServerViewModel: ObservableObject {
     }
 
     var turnCredentialRequired: Bool {
-        parsedICEURLs().contains {
+        if iceServiceEnabled, callTraversalDeploymentMode == .managed {
+            return true
+        }
+        return parsedICEURLs().contains {
             $0.hasPrefix("turn:") || $0.hasPrefix("turns:")
+        }
+    }
+
+    var managedTurnReachabilityDescription: String {
+        let candidate = managedTurnHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else {
+            return "A local address will be detected automatically."
+        }
+        if Self.isLikelyPrivateAddress(candidate) {
+            return "Ready for local-network calls. Internet calls still require router forwarding for the displayed ports."
+        }
+        return "Public address configured. The app will manage coturn; the listed ports must reach this Mac."
+    }
+
+    var managedTurnAdvertisedHostDescription: String {
+        let candidate = managedTurnHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidate.isEmpty ? "Detected automatically" : candidate
+    }
+
+    func setCallTraversalEnabled(_ enabled: Bool) {
+        guard !isRunning else { return }
+        iceServiceEnabled = enabled
+        guard enabled, callTraversalDeploymentMode == .managed else { return }
+        do {
+            try prepareManagedCoturnConfiguration()
+            lastError = nil
+        } catch {
+            iceServiceEnabled = false
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setCallTraversalDeploymentMode(_ mode: CallTraversalDeploymentMode) {
+        guard !isRunning else { return }
+        callTraversalDeploymentMode = mode
+        guard iceServiceEnabled, mode == .managed else { return }
+        do {
+            try prepareManagedCoturnConfiguration()
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
         }
     }
 
@@ -1046,6 +1106,11 @@ final class ServerViewModel: ObservableObject {
                 self?.handle(event: event)
             }
         }
+        ManagedCoturnService.shared.$state
+            .sink { [weak self] state in
+                self?.managedCoturnState = state
+            }
+            .store(in: &settingsCancellables)
         configureNamespacePersistence(on: server)
         loadPersistedSettingsIfAvailable()
         refreshClaimedNoctwebSuffixFromDisk()
@@ -1117,6 +1182,18 @@ final class ServerViewModel: ObservableObject {
             resolvedStoreURL = try validatedStoreURL()
         } catch {
             lastError = redactedRelayAppError(error, fallback: "Relay storage path is not usable.")
+            return
+        }
+        let managedCoturnConfiguration: ManagedCoturnConfiguration?
+        do {
+            if iceServiceEnabled, callTraversalDeploymentMode == .managed {
+                try prepareManagedCoturnConfiguration()
+                managedCoturnConfiguration = try makeManagedCoturnConfiguration()
+            } else {
+                managedCoturnConfiguration = nil
+            }
+        } catch {
+            lastError = error.localizedDescription
             return
         }
         let configuration = buildConfiguration()
@@ -1217,6 +1294,11 @@ final class ServerViewModel: ObservableObject {
         }
         Task {
             do {
+                if let managedCoturnConfiguration {
+                    try await ManagedCoturnService.shared.start(
+                        configuration: managedCoturnConfiguration
+                    )
+                }
                 if resolvedStoreURL != nil {
                     try await store.loadFromDisk()
                 }
@@ -1233,6 +1315,9 @@ final class ServerViewModel: ObservableObject {
                 try server.start(host: trimmedHost, port: portValue)
                 isRunning = true
             } catch {
+                if managedCoturnConfiguration != nil {
+                    ManagedCoturnService.shared.stop()
+                }
                 lastError = "Failed to start server: \(redactedRelayAppError(error, fallback: "Server startup failed."))"
             }
         }
@@ -1258,6 +1343,7 @@ final class ServerViewModel: ObservableObject {
                 )
             }
             stoppingServer.stop()
+            ManagedCoturnService.shared.stop()
             isRunning = false
         }
     }
@@ -2486,7 +2572,15 @@ final class ServerViewModel: ObservableObject {
 
     private func configuredICEServiceDescriptor() -> RelayICEServiceDescriptorV1? {
         guard iceServiceEnabled else { return nil }
-        let urls = parsedICEURLs()
+        let urls: [String]
+        if callTraversalDeploymentMode == .managed {
+            guard let managed = try? makeManagedCoturnConfiguration() else {
+                return nil
+            }
+            urls = managed.iceURLs
+        } else {
+            urls = parsedICEURLs()
+        }
         let containsTURN = urls.contains {
             $0.hasPrefix("turn:") || $0.hasPrefix("turns:")
         }
@@ -2502,6 +2596,85 @@ final class ServerViewModel: ObservableObject {
             relayOnlySupported: turnRelayOnlySupported
         )
         return descriptor.isStructurallyValid ? descriptor : nil
+    }
+
+    private func prepareManagedCoturnConfiguration() throws {
+        if managedTurnHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            managedTurnHost = suggestedManagedTurnHost()
+        }
+        if turnRealm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            turnRealm = "noctweave"
+        }
+        if turnSharedSecret.isEmpty {
+            turnSharedSecret = Self.generateManagedTurnSecret()
+            try RelaySecretStore.save(turnSharedSecret, account: .turnSharedSecret)
+        }
+        let configuration = try makeManagedCoturnConfiguration()
+        iceURLs = configuration.iceURLs.joined(separator: ", ")
+    }
+
+    private func makeManagedCoturnConfiguration() throws -> ManagedCoturnConfiguration {
+        guard let listeningPort = UInt16(managedTurnListeningPort),
+              let minimumRelayPort = UInt16(managedTurnMinimumRelayPort),
+              let maximumRelayPort = UInt16(managedTurnMaximumRelayPort) else {
+            throw ManagedCoturnError.invalidPortRange
+        }
+        return try ManagedCoturnConfiguration(
+            advertisedHost: managedTurnHost,
+            externalIPAddress: managedTurnExternalIPAddress.nilIfEmpty,
+            realm: turnRealm,
+            sharedSecret: turnSharedSecret,
+            listeningPort: listeningPort,
+            minimumRelayPort: minimumRelayPort,
+            maximumRelayPort: maximumRelayPort
+        )
+    }
+
+    private func suggestedManagedTurnHost() -> String {
+        let configuredHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configuredHost.isEmpty,
+           !["0.0.0.0", "::", "[::]"].contains(configuredHost),
+           ManagedCoturnConfiguration.isValidAdvertisedHost(configuredHost) {
+            return configuredHost
+        }
+        if let localAddress = Host.current().addresses.first(where: {
+            $0.contains(".") && !$0.hasPrefix("127.")
+        }), ManagedCoturnConfiguration.isValidAdvertisedHost(localAddress) {
+            return localAddress
+        }
+        if let advertised = parseEndpoint(advertisedEndpoint),
+           ManagedCoturnConfiguration.isValidAdvertisedHost(advertised.host) {
+            return advertised.host
+        }
+        return "127.0.0.1"
+    }
+
+    private static func generateManagedTurnSecret() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return (0..<32)
+            .map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func isLikelyPrivateAddress(_ host: String) -> Bool {
+        let value = host
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .lowercased()
+        if value == "localhost" || value == "::1" || value.hasPrefix("127.") {
+            return true
+        }
+        if value.hasPrefix("10.") || value.hasPrefix("192.168.")
+            || value.hasPrefix("fc") || value.hasPrefix("fd")
+            || value.hasPrefix("fe80:") {
+            return true
+        }
+        if value.hasPrefix("172."),
+           let second = value.split(separator: ".").dropFirst().first,
+           let octet = Int(second), (16...31).contains(octet) {
+            return true
+        }
+        return false
     }
 
     private func makeCoturnCredentialIssuer() -> CoturnCredentialIssuerV1? {
@@ -2649,6 +2822,12 @@ final class ServerViewModel: ObservableObject {
         var wakeJitterPermille: String?
         var wakeLongPollTimeoutSeconds: String?
         var iceServiceEnabled: Bool?
+        var callTraversalDeploymentMode: CallTraversalDeploymentMode?
+        var managedTurnHost: String?
+        var managedTurnExternalIPAddress: String?
+        var managedTurnListeningPort: String?
+        var managedTurnMinimumRelayPort: String?
+        var managedTurnMaximumRelayPort: String?
         var iceURLs: String?
         var turnRealm: String?
         var turnCredentialLifetimeSeconds: String?
@@ -2722,6 +2901,12 @@ final class ServerViewModel: ObservableObject {
             $wakeJitterPermille.map { _ in () }.eraseToAnyPublisher(),
             $wakeLongPollTimeoutSeconds.map { _ in () }.eraseToAnyPublisher(),
             $iceServiceEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $callTraversalDeploymentMode.map { _ in () }.eraseToAnyPublisher(),
+            $managedTurnHost.map { _ in () }.eraseToAnyPublisher(),
+            $managedTurnExternalIPAddress.map { _ in () }.eraseToAnyPublisher(),
+            $managedTurnListeningPort.map { _ in () }.eraseToAnyPublisher(),
+            $managedTurnMinimumRelayPort.map { _ in () }.eraseToAnyPublisher(),
+            $managedTurnMaximumRelayPort.map { _ in () }.eraseToAnyPublisher(),
             $iceURLs.map { _ in () }.eraseToAnyPublisher(),
             $turnRealm.map { _ in () }.eraseToAnyPublisher(),
             $turnCredentialLifetimeSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -2846,6 +3031,12 @@ final class ServerViewModel: ObservableObject {
             wakeJitterPermille: wakeJitterPermille,
             wakeLongPollTimeoutSeconds: wakeLongPollTimeoutSeconds,
             iceServiceEnabled: iceServiceEnabled,
+            callTraversalDeploymentMode: callTraversalDeploymentMode,
+            managedTurnHost: managedTurnHost,
+            managedTurnExternalIPAddress: managedTurnExternalIPAddress,
+            managedTurnListeningPort: managedTurnListeningPort,
+            managedTurnMinimumRelayPort: managedTurnMinimumRelayPort,
+            managedTurnMaximumRelayPort: managedTurnMaximumRelayPort,
             iceURLs: iceURLs,
             turnRealm: turnRealm,
             turnCredentialLifetimeSeconds: turnCredentialLifetimeSeconds,
@@ -2970,6 +3161,12 @@ final class ServerViewModel: ObservableObject {
             wakeJitterPermille = persisted.wakeJitterPermille ?? "250"
             wakeLongPollTimeoutSeconds = persisted.wakeLongPollTimeoutSeconds ?? "60"
             iceServiceEnabled = persisted.iceServiceEnabled ?? false
+            callTraversalDeploymentMode = persisted.callTraversalDeploymentMode ?? .managed
+            managedTurnHost = persisted.managedTurnHost ?? ""
+            managedTurnExternalIPAddress = persisted.managedTurnExternalIPAddress ?? ""
+            managedTurnListeningPort = persisted.managedTurnListeningPort ?? "3478"
+            managedTurnMinimumRelayPort = persisted.managedTurnMinimumRelayPort ?? "49160"
+            managedTurnMaximumRelayPort = persisted.managedTurnMaximumRelayPort ?? "49200"
             iceURLs = persisted.iceURLs ?? ""
             turnRealm = persisted.turnRealm ?? "noctweave"
             turnCredentialLifetimeSeconds = persisted.turnCredentialLifetimeSeconds ?? "600"

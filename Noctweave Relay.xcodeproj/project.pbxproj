@@ -7,19 +7,48 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C07100012F4A000100000001 /* ManagedCoturn.bundle in Embed Managed coturn */ = {isa = PBXBuildFile; fileRef = C07100022F4A000100000002 /* ManagedCoturn.bundle */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D1E2F3A405162738495A6B7D /* NoctweaveCore in Frameworks */ = {isa = PBXBuildFile; productRef = E1F2A3B405162738495A6B7D /* NoctweaveCore */; };
 		D4E5F6A705162738495A6B7D /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D5E6F7A805162738495A6B7D /* XCTest.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		C07100032F4A000100000003 /* Embed Managed coturn */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				C07100012F4A000100000001 /* ManagedCoturn.bundle in Embed Managed coturn */,
+			);
+			name = "Embed Managed coturn";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		251C71012F00A529007DB82C /* Noctweave Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Noctweave Relay.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C07100022F4A000100000002 /* ManagedCoturn.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; path = "Noctweave Relay/ManagedCoturn.bundle"; sourceTree = "<group>"; };
 		D2E3F4A505162738495A6B7D /* Noctweave RelayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Noctweave RelayTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D5E6F7A805162738495A6B7D /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = "System/Library/Frameworks/XCTest.framework"; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C07100042F4A000100000004 /* Exceptions for "Noctweave Relay" folder in "Noctweave Relay" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ManagedCoturn.bundle,
+			);
+			target = 251C71002F00A529007DB82C /* Noctweave Relay */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		251C71032F00A529007DB82C /* Noctweave Relay */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C07100042F4A000100000004 /* Exceptions for "Noctweave Relay" folder in "Noctweave Relay" target */,
+			);
 			path = "Noctweave Relay";
 			sourceTree = "<group>";
 		};
@@ -53,6 +82,7 @@
 		251C70F82F00A529007DB82C = {
 			isa = PBXGroup;
 			children = (
+				C07100022F4A000100000002 /* ManagedCoturn.bundle */,
 				251C71032F00A529007DB82C /* Noctweave Relay */,
 				D6E7F8A905162738495A6B7D /* Noctweave RelayTests */,
 				251C71022F00A529007DB82C /* Products */,
@@ -88,6 +118,7 @@
 				251C70FD2F00A529007DB82C /* Sources */,
 				251C70FE2F00A529007DB82C /* Frameworks */,
 				251C70FF2F00A529007DB82C /* Resources */,
+				C07100032F4A000100000003 /* Embed Managed coturn */,
 			);
 			buildRules = (
 			);

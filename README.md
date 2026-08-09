@@ -13,7 +13,7 @@ Presence and media can then be disabled independently.
 The panel reports whether the relay is ready for remote NoctCord clients.
 Remote realtime routes require native Relay TLS or a trusted TLS reverse proxy;
 loopback development is allowed without TLS. Voice and screen-sharing traversal
-remain optional and use the external coturn configuration under **Transport**.
+remain optional and can use the relay app's bundled coturn service.
 
 These are transport capabilities, not a server-side community database. The
 relay does not receive community names, channels, roles, memberships, message
@@ -21,18 +21,20 @@ plaintext, or media plaintext.
 
 ## Optional call traversal
 
-The app can advertise an externally managed coturn instance through
-`nw.ice-service@1` and issue short-lived TURN REST credentials. Open
-**Transport**, enable **Advertise external STUN / TURN**, enter the public ICE
-URLs, realm, lifetime, and the same shared secret configured as coturn's
-`static-auth-secret`. The secret is stored in Keychain and is never included in
-relay info.
+Open **Transport** and enable **Call connectivity**. The native app bundles a
+minimal coturn 4.17.2 service, generates its private credential key, advertises
+`nw.ice-service@1`, issues short-lived TURN credentials, and starts or stops the
+service with the relay. A local-network address is detected automatically, so a
+LAN relay needs no separate coturn install, Docker container, account, or manual
+secret configuration.
 
-The app does not launch coturn. Publish coturn's TCP/UDP listener and allocation
-port range directly or behind a layer-4 proxy; a normal HTTP reverse proxy
-cannot carry TURN. See the public
+For Internet calls, route the displayed TURN TCP/UDP port and UDP allocation
+range to the Mac. Ordinary HTTP reverse proxies cannot carry TURN. Operators
+who already run coturn can select **External** under **Advanced call settings**.
+The credential key remains in Keychain and is never included in relay info. See
+the public
 [`coturn_call_traversal.md`](../NoctweaveDocumentation/coturn_call_traversal.md)
-guide for the Docker profile and threat boundaries.
+guide for network examples and threat boundaries.
 
 ## What it includes
 
@@ -79,5 +81,8 @@ This project replaces the former Noctyra product identity. Its product name, sch
 ## License
 
 This project is free software licensed under the GNU Affero General Public License, version 3 or, at your option, any later version (`AGPL-3.0-or-later`). See [LICENSE](LICENSE).
+
+Bundled dependencies and their licenses are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 If you modify the program and let users interact with it over a network, the AGPL requires that those users be offered the Corresponding Source for the version they are using. This summary is informational; the license text controls.

@@ -114,16 +114,19 @@ participant still needs a standard relay for its private message route.
 
 ### Optional coturn traversal
 
-A standard relay may advertise an external STUN/TURN deployment through
-`nw.ice-service@1`. Configure public ICE URLs under **Transport**. TURN URLs
-also require a realm, a 60-3600 second credential lifetime, and the same shared
-secret used as coturn's `static-auth-secret`; the app stores that secret in
-Keychain and returns only short-lived client credentials.
+A standard relay may advertise STUN/TURN through `nw.ice-service@1`. Under
+**Transport**, enable **Call connectivity**. The default **Managed** mode starts
+the coturn service bundled with the native app, detects a local address,
+generates a private TURN REST key, stores it in Keychain, and returns only
+short-lived credentials to eligible clients. It starts and stops with the
+Noctweave relay.
 
-The relay app does not run coturn or proxy TURN packets. Publish coturn's UDP
-and TCP listener plus its allocation range directly or through a layer-4 proxy.
-Ordinary HTTPS reverse proxying applies only to the Noctweave control plane.
-The coturn operator can observe endpoint addresses, timing, and traffic volume,
+LAN operation requires no additional service. For Internet operation, forward
+the displayed TCP/UDP listening port and UDP allocation range to this Mac. TURN
+does not pass through an ordinary HTTPS reverse proxy; use direct forwarding or
+a layer-4 proxy. **Advanced call settings** provides public-address overrides,
+port controls, and an **External** mode for an operator-managed coturn service.
+The TURN service can observe endpoint addresses, timing, and traffic volume,
 while call media remains encrypted by the client media transport.
 
 ### NoctCord community profile
@@ -143,8 +146,9 @@ who also want timing-obscured messaging should use a separate relay instance.
 
 Remote realtime service advertisement requires native Relay TLS or a trusted
 TLS reverse proxy. Plaintext is permitted only for literal loopback development.
-Calls and screen sharing additionally need the optional external coturn service
-configured under **Transport**; the Noctweave relay does not carry TURN packets.
+Calls and screen sharing additionally need call connectivity under **Transport**.
+The native app can manage its bundled coturn service, or an operator can select
+an external deployment in advanced settings.
 
 NoctCord community policy remains end-to-end encrypted client state. The relay
 does not configure or inspect community names, channels, roles, memberships, or

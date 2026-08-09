@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var showingSetupGuide = false
     @State private var showingRelayIdentityRotation = false
     @State private var showingNoctwebSuffixRelease = false
+    @State private var showingAdvancedCallTraversal = false
     @State private var selectedPanel: RelayPanel = .overview
 
     private enum RelayPanel: String, CaseIterable, Identifiable {
@@ -82,6 +83,20 @@ struct ContentView: View {
         Binding(
             get: { model.noctCordImmediateDeliveryEnabled },
             set: { model.setNoctCordImmediateDelivery($0) }
+        )
+    }
+
+    private var callTraversalEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.iceServiceEnabled },
+            set: { model.setCallTraversalEnabled($0) }
+        )
+    }
+
+    private var callTraversalModeBinding: Binding<CallTraversalDeploymentMode> {
+        Binding(
+            get: { model.callTraversalDeploymentMode },
+            set: { model.setCallTraversalDeploymentMode($0) }
         )
     }
 
@@ -504,10 +519,15 @@ struct ContentView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Button("Transport Settings") {
-                                    selectedPanel = .security
+                                Button(model.iceServiceEnabled ? "Call Settings" : "Enable Calls") {
+                                    if model.iceServiceEnabled {
+                                        selectedPanel = .security
+                                    } else {
+                                        model.setCallTraversalEnabled(true)
+                                    }
                                 }
                                 .relayButton()
+                                .disabled(model.isRunning || model.relayKind != .standard)
                             }
 
                             Divider().opacity(0.2)
@@ -1039,57 +1059,7 @@ struct ContentView: View {
 
                         Divider().opacity(0.2)
 
-                        Toggle(
-                            "Advertise external STUN / TURN",
-                            isOn: $model.iceServiceEnabled
-                        )
-                        .disabled(model.relayKind != .standard)
-                        Text(model.callTraversalDescription)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-
-                        if model.iceServiceEnabled {
-                            TextField(
-                                "stun:turn.example.org:3478, turn:turn.example.org:3478?transport=udp",
-                                text: $model.iceURLs,
-                                axis: .vertical
-                            )
-                            .lineLimit(2...5)
-                            .relayFieldStyle()
-
-                            if model.turnCredentialRequired {
-                                HStack {
-                                    Text("TURN realm")
-                                    Spacer()
-                                    TextField("turn.example.org", text: $model.turnRealm)
-                                        .relayFieldStyle()
-                                        .frame(maxWidth: 300)
-                                }
-                                HStack {
-                                    Text("Credential lifetime")
-                                    Spacer()
-                                    TextField("600", text: $model.turnCredentialLifetimeSeconds)
-                                        .relayFieldStyle()
-                                        .frame(width: 92)
-                                    Text("seconds")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                SecureField(
-                                    "coturn shared secret (stored in Keychain)",
-                                    text: $model.turnSharedSecret
-                                )
-                                .relayFieldStyle()
-                                Toggle(
-                                    "Advertise relay-only call support",
-                                    isOn: $model.turnRelayOnlySupported
-                                )
-                            }
-
-                            Text("The macOS relay does not embed coturn. Run coturn separately and use the same shared secret. TURN ports bypass ordinary HTTP reverse proxies; expose them directly or through a layer-4 proxy. Media remains application-encrypted.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                        callTraversalSettings
 
                     }
                     .disabled(model.isRunning)
@@ -1709,6 +1679,182 @@ struct ContentView: View {
         case .failed:
             return (status.title, status.detail, "exclamationmark.triangle.fill", .orange)
         }
+    }
+
+    private func managedCoturnStatusDisplay(
+        _ state: ManagedCoturnState
+    ) -> (title: String, icon: String, color: Color) {
+        switch state {
+        case .stopped:
+            return (state.title, "power", .secondary)
+        case .starting:
+            return (state.title, "arrow.triangle.2.circlepath", .cyan)
+        case .running:
+            return (state.title, "checkmark.circle.fill", .green)
+        case .unavailable, .failed:
+            return (state.title, "exclamationmark.triangle.fill", .orange)
+        }
+    }
+
+    private var callTraversalSettings: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Enable call connectivity", isOn: callTraversalEnabledBinding)
+                .disabled(model.relayKind != .standard)
+            Text(model.callTraversalDescription)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            if model.iceServiceEnabled {
+                callTraversalSummary
+
+                if model.callTraversalDeploymentMode == .managed {
+                    HStack(spacing: 6) {
+                        Text("Reachable as")
+                            .foregroundStyle(.secondary)
+                        Text(model.managedTurnAdvertisedHostDescription)
+                            .fontWeight(.semibold)
+                            .textSelection(.enabled)
+                    }
+                    .font(.caption)
+                }
+
+                DisclosureGroup(
+                    "Advanced call settings",
+                    isExpanded: $showingAdvancedCallTraversal
+                ) {
+                    advancedCallTraversalSettings
+                        .padding(.top, 8)
+                }
+
+                Text(callTraversalPrivacyDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var callTraversalSummary: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: model.callTraversalDeploymentMode == .managed
+                ? "bolt.horizontal.circle.fill"
+                : "network")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color.noctweaveCoral)
+                .frame(width: 38, height: 38)
+                .background(Circle().fill(Color.noctweaveCoral.opacity(0.14)))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.callTraversalDeploymentMode == .managed
+                    ? "Managed by Noctweave Relay"
+                    : "External traversal service")
+                    .font(.callout.weight(.semibold))
+                Text(model.callTraversalDeploymentMode == .managed
+                    ? "No separate coturn install, account, or credential setup."
+                    : "Use an existing STUN or TURN deployment.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if model.callTraversalDeploymentMode == .managed {
+                let display = managedCoturnStatusDisplay(model.managedCoturnState)
+                statusBadge(display.title, icon: display.icon, color: display.color)
+            }
+        }
+        .padding(12)
+        .premiumSurface(cornerRadius: 14, tintOpacity: 0.08)
+    }
+
+    private var advancedCallTraversalSettings: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Service")
+                Spacer()
+                Picker("Service", selection: callTraversalModeBinding) {
+                    ForEach(CallTraversalDeploymentMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 220)
+            }
+
+            if model.callTraversalDeploymentMode == .managed {
+                TextField(
+                    "Reachable hostname or IP",
+                    text: $model.managedTurnHost
+                )
+                .relayFieldStyle()
+                Text(model.managedTurnReachabilityDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                TextField(
+                    "Public IP override (only for NAT mappings)",
+                    text: $model.managedTurnExternalIPAddress
+                )
+                .relayFieldStyle()
+
+                HStack(spacing: 10) {
+                    TextField("TURN port", text: $model.managedTurnListeningPort)
+                        .relayFieldStyle()
+                    TextField("Relay port from", text: $model.managedTurnMinimumRelayPort)
+                        .relayFieldStyle()
+                    TextField("Relay port through", text: $model.managedTurnMaximumRelayPort)
+                        .relayFieldStyle()
+                }
+                Text("Allow the TURN port over TCP and UDP, plus the relay range over UDP. Router or firewall changes are only needed for calls arriving from outside this network.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                TextField("STUN / TURN URLs", text: $model.iceURLs, axis: .vertical)
+                    .lineLimit(2...5)
+                    .relayFieldStyle()
+            }
+
+            turnCredentialSettings
+
+            Toggle(
+                "Advertise relay-only call support",
+                isOn: $model.turnRelayOnlySupported
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var turnCredentialSettings: some View {
+        if model.turnCredentialRequired {
+            HStack {
+                Text("TURN realm")
+                Spacer()
+                TextField("noctweave", text: $model.turnRealm)
+                    .relayFieldStyle()
+                    .frame(maxWidth: 260)
+            }
+            HStack {
+                Text("Credential lifetime")
+                Spacer()
+                TextField("600", text: $model.turnCredentialLifetimeSeconds)
+                    .relayFieldStyle()
+                    .frame(width: 92)
+                Text("seconds")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if model.callTraversalDeploymentMode == .external {
+                SecureField(
+                    "External coturn shared secret (stored in Keychain)",
+                    text: $model.turnSharedSecret
+                )
+                .relayFieldStyle()
+            }
+        }
+    }
+
+    private var callTraversalPrivacyDescription: String {
+        if model.callTraversalDeploymentMode == .managed {
+            return "The bundled coturn service starts and stops with this relay. Media stays application-encrypted; TURN can still observe connection metadata."
+        }
+        return "External TURN ports bypass ordinary HTTP reverse proxies. Expose them directly or through a layer-4 proxy. Media remains application-encrypted."
     }
 
     private func federationDetailRow(_ title: String, value: String) -> some View {
