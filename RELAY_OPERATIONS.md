@@ -129,6 +129,12 @@ port controls, and an **External** mode for an operator-managed coturn service.
 The TURN service can observe endpoint addresses, timing, and traffic volume,
 while call media remains encrypted by the client media transport.
 
+Managed mode does not require the generated coturn configuration in backups.
+The app deletes that transient file after launch and can generate a new shared
+key if Keychain state is unavailable after restoration. Existing temporary TURN
+credentials then expire; relay identity and stored ciphertext are unaffected.
+External mode requires the operator to restore the same shared key at both ends.
+
 ### NoctCord community profile
 
 The **NoctCord** panel controls four application-neutral relay modules:

@@ -36,6 +36,12 @@ the public
 [`coturn_call_traversal.md`](../NoctweaveDocumentation/coturn_call_traversal.md)
 guide for network examples and threat boundaries.
 
+The generated coturn configuration is transient and removed after startup. A
+restored managed relay can generate a new TURN key if its Keychain item is not
+available; this expires old temporary call credentials without changing relay
+identity or stored data. External deployments must restore the same secret on
+both coturn and the relay.
+
 ## What it includes
 
 - Local relay start, stop, status, and runtime diagnostics
