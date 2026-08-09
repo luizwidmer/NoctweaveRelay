@@ -1038,6 +1038,29 @@ final class ServerViewModel: ObservableObject {
         attachmentsEnabled = true
     }
 
+    func applyPrivateMessagingRecommendedProfile() {
+        guard !isRunning else { return }
+        relayKind = .standard
+        federationMode = .solo
+        temporalBucketMode = .single
+        temporalBucketMinutes = "5"
+        attachmentsEnabled = true
+        rendezvousTransportEnabled = RelayRuntimePolicy.defaultRendezvousTransportEnabled
+        realtimeRoutesEnabled = false
+        sharedLogsEnabled = false
+        ephemeralPresenceEnabled = false
+        mediaBlobsEnabled = false
+        hiddenRetrievalEnabled = false
+        onionTransportEnabled = false
+        mixnetTransportEnabled = false
+    }
+
+    func applyRealtimeCommunityRecommendedProfile() {
+        guard !isRunning else { return }
+        federationMode = .solo
+        applyNoctCordRecommendedProfile()
+    }
+
     var permissionPreflightReady: Bool {
         permissionProbeHasRun
     }

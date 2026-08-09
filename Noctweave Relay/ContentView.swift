@@ -1140,10 +1140,26 @@ struct ContentView: View {
         .sheet(isPresented: $showingSetupGuide, onDismiss: {
             hasSeenSetupGuide = true
         }) {
-            RelaySetupGuideView {
-                hasSeenSetupGuide = true
-                showingSetupGuide = false
-            }
+            RelaySetupGuideView(
+                canApplyProfiles: !model.isRunning,
+                onUsePrivateMessaging: {
+                    model.applyPrivateMessagingRecommendedProfile()
+                    selectedPanel = .overview
+                    hasSeenSetupGuide = true
+                    showingSetupGuide = false
+                },
+                onUseRealtimeCommunities: {
+                    model.applyRealtimeCommunityRecommendedProfile()
+                    selectedPanel = .overview
+                    hasSeenSetupGuide = true
+                    showingSetupGuide = false
+                },
+                onCustomize: {
+                    selectedPanel = .profile
+                    hasSeenSetupGuide = true
+                    showingSetupGuide = false
+                }
+            )
         }
         .confirmationDialog(
             "Rotate relay identity?",
@@ -2389,48 +2405,65 @@ private struct ServerPermissionPreflightView: View {
 }
 
 private struct RelaySetupGuideView: View {
-    let onDone: () -> Void
+    let canApplyProfiles: Bool
+    let onUsePrivateMessaging: () -> Void
+    let onUseRealtimeCommunities: () -> Void
+    let onCustomize: () -> Void
+    @State private var showingDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             RelaySheetHero(
                 icon: "sparkles",
-                title: "Set Up Your Relay",
-                subtitle: "Start with the defaults, then add federation or advanced storage only when you need them."
+                title: "What will this relay host?",
+                subtitle: "Choose a secure starting profile. Every setting remains available later."
             )
 
-            VStack(spacing: 10) {
-                guideStep(
-                    1,
-                    title: "Choose how clients connect",
-                    detail: "In Transport, use HTTP behind an HTTPS reverse proxy, or native TCP for direct and LAN deployments."
+            VStack(spacing: 12) {
+                starterProfile(
+                    icon: "message.fill",
+                    title: "Private Messaging",
+                    detail: "Solo relay with five-minute timestamp buckets, encrypted attachments, and one-use pairing. Realtime community metadata stays off.",
+                    actionTitle: "Use Recommended Profile",
+                    action: onUsePrivateMessaging
                 )
-                guideStep(
-                    2,
-                    title: "Review identity and storage",
-                    detail: "Relay Profile controls advertised capabilities. Storage controls persistence and attachment retention."
-                )
-                guideStep(
-                    3,
-                    title: "Start and verify",
-                    detail: "Return to Overview, press Start, then add the advertised address in a Noctweave client. The client verifies /info before saving it."
-                )
-                guideStep(
-                    4,
-                    title: "Add federation later",
-                    detail: "Solo mode needs no federation setup. Manual, curated, and open networks expose their own panel when selected."
+                starterProfile(
+                    icon: "bubble.left.and.bubble.right.fill",
+                    title: "Realtime Communities",
+                    detail: "Immediate encrypted delivery, community logs, presence, and media for Noct Cord. Calls can be enabled with one switch afterward.",
+                    actionTitle: "Use Realtime Profile",
+                    action: onUseRealtimeCommunities
                 )
             }
 
+            if !canApplyProfiles {
+                Label("Stop the relay before applying a starter profile.", systemImage: "pause.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            DisclosureGroup("What happens next?", isExpanded: $showingDetails) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Review the listening address in Transport.", systemImage: "1.circle.fill")
+                    Label("Press Start on Overview.", systemImage: "2.circle.fill")
+                    Label("Clients verify the relay before saving it.", systemImage: "3.circle.fill")
+                    Text("Federation, Noctweb hosting, external TLS, and advanced storage remain opt-in because they require operator-specific trust decisions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+                .padding(.top, 10)
+            }
+
             HStack {
-                Text("You can reopen this guide from More → Setup Guide.")
+                Button("Configure Manually") {
+                    onCustomize()
+                }
+                .relayButton()
+                Text("Reopen this guide from More → Setup Guide.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Open Control Plane") {
-                    onDone()
-                }
-                .relayButton(prominent: true)
             }
         }
         .padding(24)
@@ -2438,13 +2471,19 @@ private struct RelaySetupGuideView: View {
         .background(PremiumRelayBackground())
     }
 
-    private func guideStep(_ number: Int, title: String, detail: String) -> some View {
+    private func starterProfile(
+        icon: String,
+        title: String,
+        detail: String,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text("\(number)")
-                .font(.subheadline.weight(.bold))
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.noctweaveCoral)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(Color.noctweaveCoral.opacity(0.14)))
+                .frame(width: 38, height: 38)
+                .background(RoundedRectangle(cornerRadius: 11).fill(Color.noctweaveCoral.opacity(0.14)))
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
@@ -2454,9 +2493,12 @@ private struct RelaySetupGuideView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+            Button(actionTitle, action: action)
+                .relayButton(prominent: true)
+                .disabled(!canApplyProfiles)
         }
-        .padding(12)
-        .premiumSurface(cornerRadius: 14, tintOpacity: 0.10)
+        .padding(14)
+        .premiumSurface(cornerRadius: 16, tintOpacity: 0.10)
     }
 }
 
