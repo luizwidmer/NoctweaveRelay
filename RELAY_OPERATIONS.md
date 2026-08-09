@@ -8,7 +8,7 @@ For the complete Noctweave federation wire protocol, JSON request examples, endp
 1. Set `Host` and `Port`.
 2. Choose `Relay Kind`.
 3. Choose `Federation Mode`.
-4. Set `Temporal Bucket (minutes)` and optional `Multi-Bucket Schedule (minutes)`.
+4. Set `Temporal Bucket (minutes)` and optional `Multi-Bucket Schedule (minutes)`, or apply the NoctCord immediate-delivery profile.
 5. Choose `Storage` (`Disk` or `RAM`).
 6. Optionally set `Relay Password`, `Relay Name`, and `Operator Note`.
 7. Click `Start`.
@@ -125,6 +125,30 @@ and TCP listener plus its allocation range directly or through a layer-4 proxy.
 Ordinary HTTPS reverse proxying applies only to the Noctweave control plane.
 The coturn operator can observe endpoint addresses, timing, and traffic volume,
 while call media remains encrypted by the client media transport.
+
+### NoctCord community profile
+
+The **NoctCord** panel controls four application-neutral relay modules:
+
+- `nw.realtime-route@1`: low-latency encrypted signaling and records.
+- `nw.shared-log@1`: bounded, cursor-based opaque community history.
+- `nw.ephemeral-presence@1`: expiring online and room-presence leases.
+- `nw.media-blobs@1`: bounded encrypted channel media using the relay's normal attachment retention policy.
+
+Use **Apply Recommended Profile** for a NoctCord-capable relay. It selects the
+Standard relay kind, disables temporal bucketing, enables all four modules, and
+enables attachments. The settings are explicit and may be narrowed afterward.
+Disabling temporal bucketing affects every workload on this relay, so operators
+who also want timing-obscured messaging should use a separate relay instance.
+
+Remote realtime service advertisement requires native Relay TLS or a trusted
+TLS reverse proxy. Plaintext is permitted only for literal loopback development.
+Calls and screen sharing additionally need the optional external coturn service
+configured under **Transport**; the Noctweave relay does not carry TURN packets.
+
+NoctCord community policy remains end-to-end encrypted client state. The relay
+does not configure or inspect community names, channels, roles, memberships, or
+content, and the native app intentionally exposes no such plaintext controls.
 
 ## 7. Temporal Bucket
 `Temporal Bucket (minutes)` controls the base timestamp bucketing.

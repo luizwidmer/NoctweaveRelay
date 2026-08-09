@@ -25,6 +25,7 @@ struct ContentView: View {
         case profile
         case federation
         case storage
+        case noctCord
         case web
         case security
         case logs
@@ -37,6 +38,7 @@ struct ContentView: View {
             case .profile: return "Relay Profile"
             case .federation: return "Federation"
             case .storage: return "Storage"
+            case .noctCord: return "NoctCord"
             case .web: return "Noctweb"
             case .security: return "Transport"
             case .logs: return "Logs"
@@ -49,6 +51,7 @@ struct ContentView: View {
             case .profile: return "slider.horizontal.3"
             case .federation: return "point.3.connected.trianglepath.dotted"
             case .storage: return "externaldrive"
+            case .noctCord: return "bubble.left.and.bubble.right.fill"
             case .web: return "globe"
             case .security: return "lock.shield"
             case .logs: return "text.alignleft"
@@ -66,6 +69,20 @@ struct ContentView: View {
 
     private var theme: NoctweaveThemeTokens {
         NoctweaveThemeTokens(colorScheme: colorScheme)
+    }
+
+    private var noctCordServicesBinding: Binding<Bool> {
+        Binding(
+            get: { model.noctCordServicesEnabled },
+            set: { model.setNoctCordServicesEnabled($0) }
+        )
+    }
+
+    private var noctCordImmediateDeliveryBinding: Binding<Bool> {
+        Binding(
+            get: { model.noctCordImmediateDeliveryEnabled },
+            set: { model.setNoctCordImmediateDelivery($0) }
+        )
     }
 
     var body: some View {
@@ -368,6 +385,138 @@ struct ContentView: View {
                     .disabled(model.isRunning)
                     .id(RelayPanel.profile)
                             }
+
+                    if selectedPanel == .noctCord {
+                        serverCard(
+                            title: "NoctCord",
+                            subtitle: "Realtime communities, presence, media, and calls",
+                            icon: "bubble.left.and.bubble.right.fill"
+                        ) {
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("Community service profile")
+                                        .font(.headline)
+                                    Text(model.noctCordServiceDescription)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 12)
+                                Text(model.noctCordServiceTier)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(
+                                        model.noctCordServicesEnabled
+                                            ? (model.noctCordReadinessIssues.isEmpty ? Color.green : Color.orange)
+                                            : Color.secondary
+                                    )
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        Capsule(style: .continuous)
+                                            .fill(
+                                                (model.noctCordServicesEnabled
+                                                    ? (model.noctCordReadinessIssues.isEmpty ? Color.green : Color.orange)
+                                                    : Color.secondary)
+                                                    .opacity(0.12)
+                                            )
+                                    )
+                            }
+
+                            if !model.noctCordReadinessIssues.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ForEach(model.noctCordReadinessIssues, id: \.self) { issue in
+                                        Label(issue, systemImage: "exclamationmark.triangle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Toggle(
+                                        "Enable community relay services",
+                                        isOn: noctCordServicesBinding
+                                    )
+                                    Spacer()
+                                    Button("Apply Recommended Profile") {
+                                        model.applyNoctCordRecommendedProfile()
+                                    }
+                                    .relayButton(prominent: true)
+                                }
+
+                                if model.noctCordServicesEnabled {
+                                    Divider().opacity(0.2)
+
+                                    Toggle(
+                                        "Immediate delivery (relay-wide)",
+                                        isOn: noctCordImmediateDeliveryBinding
+                                    )
+                                    Text("NoctCord rejects temporally bucketed relays because community messages and signaling need low latency. Enabling this disables timestamp bucketing for every workload on this relay.")
+                                        .font(.caption2)
+                                        .foregroundStyle(model.noctCordImmediateDeliveryEnabled ? Color.secondary : Color.orange)
+
+                                    Toggle("Realtime signaling routes", isOn: $model.realtimeRoutesEnabled)
+                                    Text("Required for voice-room signaling and compact, low-latency encrypted records through nw.realtime-route@1.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+
+                                    Toggle("Durable encrypted community logs", isOn: $model.sharedLogsEnabled)
+                                    Text("Advertises cursor-based opaque history through nw.shared-log@1. The relay sees bounds and timing, never channels or plaintext.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+
+                                    Toggle("Ephemeral presence leases", isOn: $model.ephemeralPresenceEnabled)
+                                    Text("Allows online and room-presence state. Disable this to reduce timing and relationship metadata at the cost of live presence indicators.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+
+                                    Toggle("Encrypted media blobs", isOn: $model.mediaBlobsEnabled)
+                                    Toggle("Accept encrypted media attachments", isOn: $model.attachmentsEnabled)
+                                    Text(model.attachmentsEnabled && model.mediaBlobsEnabled
+                                         ? "Images, files, and channel media use bounded, expiring encrypted blobs. Existing attachment retention and storage policy still applies."
+                                         : "NoctCord media uploads are not advertised. Text and realtime signaling can remain available.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .disabled(model.isRunning)
+
+                            Divider().opacity(0.2)
+
+                            HStack(alignment: .center, spacing: 12) {
+                                Image(systemName: model.iceServiceEnabled ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(model.iceServiceEnabled ? Color.green : Color.secondary)
+                                    .frame(width: 38, height: 38)
+                                    .background(
+                                        (model.iceServiceEnabled ? Color.green : Color.secondary)
+                                            .opacity(0.10),
+                                        in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    )
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Call traversal")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(model.callTraversalDescription)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Transport Settings") {
+                                    selectedPanel = .security
+                                }
+                                .relayButton()
+                            }
+
+                            Divider().opacity(0.2)
+                            Text("The relay remains application-neutral. It cannot read community names, channels, roles, memberships, messages, or media. Community admission policy is enforced by encrypted group state rather than an operator-visible server account system.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .id(RelayPanel.noctCord)
+                    }
 
                     if selectedPanel == .federation, model.federationMode != .solo {
                         serverCard(
@@ -1232,6 +1381,15 @@ struct ContentView: View {
                     icon: "globe",
                     color: model.effectiveNoctwebHostingEnabled ? .green : .secondary
                 )
+                overviewSummaryCard(
+                    title: "NoctCord",
+                    value: model.noctCordServiceTier,
+                    detail: model.noctCordServiceDescription,
+                    icon: "bubble.left.and.bubble.right.fill",
+                    color: model.noctCordServicesEnabled
+                        ? (model.noctCordReadinessIssues.isEmpty ? .green : .orange)
+                        : .secondary
+                )
             }
 
             HStack(spacing: 10) {
@@ -1241,6 +1399,8 @@ struct ContentView: View {
                 Button("Relay Profile") { selectedPanel = .profile }
                     .relayButton()
                 Button("Storage") { selectedPanel = .storage }
+                    .relayButton()
+                Button("NoctCord") { selectedPanel = .noctCord }
                     .relayButton()
                 Button("Noctweb") { selectedPanel = .web }
                     .relayButton()

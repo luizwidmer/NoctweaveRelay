@@ -1,5 +1,24 @@
 # Noctweave Relay
 
+Noctweave Relay is the native macOS operator app for running and configuring a self-hosted Noctweave relay. It uses the sibling `NoctweaveCore` Swift package and provides a graphical control surface for relay networking, storage, access policy, retention, federation, and application-neutral realtime services.
+
+## NoctCord community services
+
+Open the dedicated **NoctCord** panel to configure the relay capabilities used
+by NoctCord communities. **Apply Recommended Profile** selects a Standard relay,
+disables relay-wide temporal bucketing for immediate delivery, enables encrypted
+realtime routes and durable shared logs, and permits bounded encrypted media.
+Presence and media can then be disabled independently.
+
+The panel reports whether the relay is ready for remote NoctCord clients.
+Remote realtime routes require native Relay TLS or a trusted TLS reverse proxy;
+loopback development is allowed without TLS. Voice and screen-sharing traversal
+remain optional and use the external coturn configuration under **Transport**.
+
+These are transport capabilities, not a server-side community database. The
+relay does not receive community names, channels, roles, memberships, message
+plaintext, or media plaintext.
+
 ## Optional call traversal
 
 The app can advertise an externally managed coturn instance through
@@ -15,8 +34,6 @@ cannot carry TURN. See the public
 [`coturn_call_traversal.md`](../NoctweaveDocumentation/coturn_call_traversal.md)
 guide for the Docker profile and threat boundaries.
 
-Noctweave Relay is the native macOS operator app for running and configuring a self-hosted Noctweave relay. It uses the sibling `NoctweaveCore` Swift package and provides a graphical control surface for relay networking, storage, access policy, retention, and federation settings.
-
 ## What it includes
 
 - Local relay start, stop, status, and runtime diagnostics
@@ -25,6 +42,7 @@ Noctweave Relay is the native macOS operator app for running and configuring a s
 - Password-based relay access control
 - Optional bounded one-use rendezvous for Relay Pairing
 - Attachment retention and temporal-bucketing controls
+- Configurable NoctCord realtime routes, durable shared logs, presence, and media blobs
 - Explicit `solo`, `manual`, `curated`, and `open` federation modes
 - Coordinator and relay-directory configuration
 

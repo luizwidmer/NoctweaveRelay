@@ -795,6 +795,10 @@ final class ServerViewModel: ObservableObject {
     @Published var attachmentDefaultTTLMinutes: String = "60"
     @Published var attachmentMaxTTLMinutes: String = "360"
     @Published var attachmentsEnabled: Bool = true
+    @Published var realtimeRoutesEnabled: Bool = true
+    @Published var sharedLogsEnabled: Bool = true
+    @Published var ephemeralPresenceEnabled: Bool = true
+    @Published var mediaBlobsEnabled: Bool = true
     @Published var rendezvousTransportEnabled: Bool = RelayRuntimePolicy.defaultRendezvousTransportEnabled
     @Published var attachmentStorageBackend: RelayAttachmentStorageBackend = .inline
     @Published var ipfsAPIEndpoint: String = "http://127.0.0.1:5001"
@@ -892,6 +896,86 @@ final class ServerViewModel: ObservableObject {
         parsedICEURLs().contains {
             $0.hasPrefix("turn:") || $0.hasPrefix("turns:")
         }
+    }
+
+    var noctCordServicesEnabled: Bool {
+        realtimeRoutesEnabled
+            || sharedLogsEnabled
+            || ephemeralPresenceEnabled
+            || mediaBlobsEnabled
+    }
+
+    var noctCordImmediateDeliveryEnabled: Bool {
+        temporalBucketMode == .disabled
+    }
+
+    var noctCordTransportReady: Bool {
+        if transportSecurityMode.advertisesTLS { return true }
+        let normalizedHost = host
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["127.0.0.1", "::1", "localhost"].contains(normalizedHost)
+    }
+
+    var noctCordReadinessIssues: [String] {
+        guard noctCordServicesEnabled else { return [] }
+        var issues: [String] = []
+        if relayKind != .standard {
+            issues.append("Use the Standard relay kind.")
+        }
+        if !noctCordImmediateDeliveryEnabled {
+            issues.append("Disable temporal bucketing for immediate community delivery.")
+        }
+        if !realtimeRoutesEnabled {
+            issues.append("Enable realtime signaling routes.")
+        }
+        if !noctCordTransportReady {
+            issues.append("Configure relay TLS or trusted proxy TLS for remote clients.")
+        }
+        return issues
+    }
+
+    var noctCordServiceTier: String {
+        guard noctCordServicesEnabled else { return "Disabled" }
+        guard noctCordReadinessIssues.isEmpty else { return "Needs setup" }
+        return sharedLogsEnabled ? "Durable community" : "Realtime MVP"
+    }
+
+    var noctCordServiceDescription: String {
+        if !noctCordServicesEnabled {
+            return "No application-neutral community services are advertised."
+        }
+        if let firstIssue = noctCordReadinessIssues.first {
+            return firstIssue
+        }
+        if sharedLogsEnabled {
+            return "Immediate encrypted community delivery and durable opaque logs are advertised."
+        }
+        return "Immediate encrypted signaling is ready; durable shared logs are disabled."
+    }
+
+    func setNoctCordServicesEnabled(_ enabled: Bool) {
+        guard !isRunning else { return }
+        realtimeRoutesEnabled = enabled
+        sharedLogsEnabled = enabled
+        ephemeralPresenceEnabled = enabled
+        mediaBlobsEnabled = enabled
+    }
+
+    func setNoctCordImmediateDelivery(_ enabled: Bool) {
+        guard !isRunning else { return }
+        temporalBucketMode = enabled ? .disabled : .single
+    }
+
+    func applyNoctCordRecommendedProfile() {
+        guard !isRunning else { return }
+        relayKind = .standard
+        temporalBucketMode = .disabled
+        realtimeRoutesEnabled = true
+        sharedLogsEnabled = true
+        ephemeralPresenceEnabled = true
+        mediaBlobsEnabled = true
+        attachmentsEnabled = true
     }
 
     var permissionPreflightReady: Bool {
@@ -1627,6 +1711,10 @@ final class ServerViewModel: ObservableObject {
             mixnetTransport: mixnetTransport,
             wakeSupport: wakeSupport,
             iceService: iceService,
+            realtimeRoutesEnabled: realtimeRoutesEnabled,
+            sharedLogsEnabled: sharedLogsEnabled,
+            ephemeralPresenceEnabled: ephemeralPresenceEnabled,
+            mediaBlobsEnabled: mediaBlobsEnabled,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
@@ -2533,6 +2621,10 @@ final class ServerViewModel: ObservableObject {
         var attachmentDefaultTTLMinutes: String
         var attachmentMaxTTLMinutes: String
         var attachmentsEnabled: Bool?
+        var realtimeRoutesEnabled: Bool?
+        var sharedLogsEnabled: Bool?
+        var ephemeralPresenceEnabled: Bool?
+        var mediaBlobsEnabled: Bool?
         var rendezvousTransportEnabled: Bool?
         var attachmentStorageBackend: RelayAttachmentStorageBackend?
         var ipfsAPIEndpoint: String?
@@ -2602,6 +2694,10 @@ final class ServerViewModel: ObservableObject {
             $attachmentDefaultTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentMaxTTLMinutes.map { _ in () }.eraseToAnyPublisher(),
             $attachmentsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $realtimeRoutesEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $sharedLogsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $ephemeralPresenceEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $mediaBlobsEnabled.map { _ in () }.eraseToAnyPublisher(),
             $rendezvousTransportEnabled.map { _ in () }.eraseToAnyPublisher(),
             $attachmentStorageBackend.map { _ in () }.eraseToAnyPublisher(),
             $ipfsAPIEndpoint.map { _ in () }.eraseToAnyPublisher(),
@@ -2722,6 +2818,10 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes: attachmentDefaultTTLMinutes,
             attachmentMaxTTLMinutes: attachmentMaxTTLMinutes,
             attachmentsEnabled: attachmentsEnabled,
+            realtimeRoutesEnabled: realtimeRoutesEnabled,
+            sharedLogsEnabled: sharedLogsEnabled,
+            ephemeralPresenceEnabled: ephemeralPresenceEnabled,
+            mediaBlobsEnabled: mediaBlobsEnabled,
             rendezvousTransportEnabled: rendezvousTransportEnabled,
             attachmentStorageBackend: attachmentStorageBackend,
             ipfsAPIEndpoint: ipfsAPIEndpoint,
@@ -2842,6 +2942,10 @@ final class ServerViewModel: ObservableObject {
             attachmentDefaultTTLMinutes = persisted.attachmentDefaultTTLMinutes
             attachmentMaxTTLMinutes = persisted.attachmentMaxTTLMinutes
             attachmentsEnabled = persisted.attachmentsEnabled ?? true
+            realtimeRoutesEnabled = persisted.realtimeRoutesEnabled ?? true
+            sharedLogsEnabled = persisted.sharedLogsEnabled ?? true
+            ephemeralPresenceEnabled = persisted.ephemeralPresenceEnabled ?? true
+            mediaBlobsEnabled = persisted.mediaBlobsEnabled ?? true
             rendezvousTransportEnabled = persisted.rendezvousTransportEnabled ?? RelayRuntimePolicy.defaultRendezvousTransportEnabled
             attachmentStorageBackend = persisted.attachmentStorageBackend ?? .inline
             ipfsAPIEndpoint = persisted.ipfsAPIEndpoint ?? "http://127.0.0.1:5001"
