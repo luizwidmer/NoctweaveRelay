@@ -544,6 +544,7 @@ private enum RelaySecretStore {
         case relayIdentityKey = "relay-identity-key-v1"
         case pendingRelayIdentityKey = "relay-identity-key-pending-v1"
         case noctwebHostSigningKey = "noctweb-host-signing-key-v1"
+        case turnSharedSecret = "turn-shared-secret-v1"
     }
 
     private static let service = "com.noctweave.relay.configuration"
@@ -817,6 +818,12 @@ final class ServerViewModel: ObservableObject {
     @Published var wakeMaxPollSeconds: String = "300"
     @Published var wakeJitterPermille: String = "250"
     @Published var wakeLongPollTimeoutSeconds: String = "60"
+    @Published var iceServiceEnabled: Bool = false
+    @Published var iceURLs: String = ""
+    @Published var turnRealm: String = "noctweave"
+    @Published var turnCredentialLifetimeSeconds: String = "600"
+    @Published var turnRelayOnlySupported: Bool = true
+    @Published var turnSharedSecret: String = ""
     @Published var relayName: String = ""
     @Published var operatorNote: String = ""
     @Published var storageMode: RelayStorageMode = .disk
@@ -866,6 +873,25 @@ final class ServerViewModel: ObservableObject {
 
     var trustedProxyConfidentialitySignal: Bool {
         RelayRuntimePolicy.trustedProxyConfidentialitySignal(transportSecurityMode)
+    }
+
+    var callTraversalDescription: String {
+        guard iceServiceEnabled else {
+            return "No STUN or TURN service is advertised to call clients."
+        }
+        guard let descriptor = configuredICEServiceDescriptor() else {
+            return "Complete the external STUN/TURN configuration before starting the relay."
+        }
+        if descriptor.credentialMode == .turnREST {
+            return "Advertises nw.ice-service@1 and issues short-lived credentials for an external coturn service."
+        }
+        return "Advertises credential-free STUN connectivity through nw.ice-service@1."
+    }
+
+    var turnCredentialRequired: Bool {
+        parsedICEURLs().contains {
+            $0.hasPrefix("turn:") || $0.hasPrefix("turns:")
+        }
     }
 
     var permissionPreflightReady: Bool {
@@ -1031,6 +1057,22 @@ final class ServerViewModel: ObservableObject {
             lastError = "Curated federation requires a coordinator registration token of at least 16 bytes."
             return
         }
+        if iceServiceEnabled {
+            guard relayKind == .standard else {
+                lastError = "Call traversal can be advertised only by a standard relay."
+                return
+            }
+            guard let descriptor = configuredICEServiceDescriptor(),
+                  descriptor.isStructurallyValid else {
+                lastError = "Enter valid, unique STUN/TURN URLs and a TURN lifetime from 60 to 3600 seconds."
+                return
+            }
+            if descriptor.credentialMode == .turnREST,
+               makeCoturnCredentialIssuer() == nil {
+                lastError = "TURN requires a 16 to 4096 byte shared secret without surrounding whitespace. Use the same secret in coturn."
+                return
+            }
+        }
         let attachmentBlobStore: AttachmentBlobStore?
         do {
             attachmentBlobStore = try makeAttachmentBlobStore()
@@ -1075,7 +1117,8 @@ final class ServerViewModel: ObservableObject {
             opaqueRouteStore: runtimeOpaqueRouteStore,
             configuration: configuration,
             relayIdentity: relayIdentityKeyMaterial,
-            noctwebHostStore: runtimeNoctwebHostStore
+            noctwebHostStore: runtimeNoctwebHostStore,
+            coturnCredentialIssuer: makeCoturnCredentialIssuer()
         )
         configureNamespacePersistence(on: server)
         if let snapshotVault {
@@ -1554,6 +1597,7 @@ final class ServerViewModel: ObservableObject {
                 longPollTimeoutSeconds: wakeMode == .longPoll ? max(5, Int(wakeLongPollTimeoutSeconds) ?? 60) : nil
             )
             : nil
+        let iceService = configuredICEServiceDescriptor()
         let allowList = parseAllowList(federationAllowList)
         let coordinators = parseCoordinatorEndpoints(
             endpointsValue: federationCoordinatorList,
@@ -1582,6 +1626,7 @@ final class ServerViewModel: ObservableObject {
             onionTransport: onionTransport,
             mixnetTransport: mixnetTransport,
             wakeSupport: wakeSupport,
+            iceService: iceService,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
@@ -2333,7 +2378,8 @@ final class ServerViewModel: ObservableObject {
             store: store,
             opaqueRouteStore: opaqueRouteStore,
             configuration: configuration,
-            relayIdentity: relayIdentityKeyMaterial
+            relayIdentity: relayIdentityKeyMaterial,
+            coturnCredentialIssuer: makeCoturnCredentialIssuer()
         )
         configureNamespacePersistence(on: server)
         server.onEvent = { [weak self] event in
@@ -2341,6 +2387,43 @@ final class ServerViewModel: ObservableObject {
                 self?.handle(event: event)
             }
         }
+    }
+
+    private func parsedICEURLs() -> [String] {
+        iceURLs
+            .split { $0 == "\n" || $0 == "," }
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func configuredICEServiceDescriptor() -> RelayICEServiceDescriptorV1? {
+        guard iceServiceEnabled else { return nil }
+        let urls = parsedICEURLs()
+        let containsTURN = urls.contains {
+            $0.hasPrefix("turn:") || $0.hasPrefix("turns:")
+        }
+        let descriptor = RelayICEServiceDescriptorV1(
+            urls: urls,
+            credentialMode: containsTURN ? .turnREST : .none,
+            credentialLifetimeSeconds: containsTURN
+                ? Int(turnCredentialLifetimeSeconds)
+                : nil,
+            realm: containsTURN
+                ? turnRealm.trimmingCharacters(in: .whitespacesAndNewlines)
+                : nil,
+            relayOnlySupported: turnRelayOnlySupported
+        )
+        return descriptor.isStructurallyValid ? descriptor : nil
+    }
+
+    private func makeCoturnCredentialIssuer() -> CoturnCredentialIssuerV1? {
+        guard configuredICEServiceDescriptor()?.credentialMode == .turnREST,
+              turnSharedSecret == turnSharedSecret.trimmingCharacters(
+                in: .whitespacesAndNewlines
+              ) else {
+            return nil
+        }
+        return CoturnCredentialIssuerV1(sharedSecret: turnSharedSecret)
     }
 
     private func configureNamespacePersistence(
@@ -2473,6 +2556,11 @@ final class ServerViewModel: ObservableObject {
         var wakeMaxPollSeconds: String?
         var wakeJitterPermille: String?
         var wakeLongPollTimeoutSeconds: String?
+        var iceServiceEnabled: Bool?
+        var iceURLs: String?
+        var turnRealm: String?
+        var turnCredentialLifetimeSeconds: String?
+        var turnRelayOnlySupported: Bool?
         var relayName: String
         var operatorNote: String
         var storageMode: RelayStorageMode
@@ -2537,6 +2625,12 @@ final class ServerViewModel: ObservableObject {
             $wakeMaxPollSeconds.map { _ in () }.eraseToAnyPublisher(),
             $wakeJitterPermille.map { _ in () }.eraseToAnyPublisher(),
             $wakeLongPollTimeoutSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $iceServiceEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $iceURLs.map { _ in () }.eraseToAnyPublisher(),
+            $turnRealm.map { _ in () }.eraseToAnyPublisher(),
+            $turnCredentialLifetimeSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $turnRelayOnlySupported.map { _ in () }.eraseToAnyPublisher(),
+            $turnSharedSecret.map { _ in () }.eraseToAnyPublisher(),
             $relayName.map { _ in () }.eraseToAnyPublisher(),
             $operatorNote.map { _ in () }.eraseToAnyPublisher(),
             $storageMode.map { _ in () }.eraseToAnyPublisher(),
@@ -2651,6 +2745,11 @@ final class ServerViewModel: ObservableObject {
             wakeMaxPollSeconds: wakeMaxPollSeconds,
             wakeJitterPermille: wakeJitterPermille,
             wakeLongPollTimeoutSeconds: wakeLongPollTimeoutSeconds,
+            iceServiceEnabled: iceServiceEnabled,
+            iceURLs: iceURLs,
+            turnRealm: turnRealm,
+            turnCredentialLifetimeSeconds: turnCredentialLifetimeSeconds,
+            turnRelayOnlySupported: turnRelayOnlySupported,
             relayName: relayName,
             operatorNote: operatorNote,
             storageMode: storageMode,
@@ -2670,6 +2769,7 @@ final class ServerViewModel: ObservableObject {
             try RelaySecretStore.save(relayPassword, account: .relayPassword)
             try RelaySecretStore.save(coordinatorRegistrationToken, account: .coordinatorRegistrationToken)
             try RelaySecretStore.save(tlsIdentityPassword, account: .tlsIdentityPassword)
+            try RelaySecretStore.save(turnSharedSecret, account: .turnSharedSecret)
             let directory = settingsURL.deletingLastPathComponent()
             if !FileManager.default.fileExists(atPath: directory.path) {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -2765,6 +2865,11 @@ final class ServerViewModel: ObservableObject {
             wakeMaxPollSeconds = persisted.wakeMaxPollSeconds ?? "300"
             wakeJitterPermille = persisted.wakeJitterPermille ?? "250"
             wakeLongPollTimeoutSeconds = persisted.wakeLongPollTimeoutSeconds ?? "60"
+            iceServiceEnabled = persisted.iceServiceEnabled ?? false
+            iceURLs = persisted.iceURLs ?? ""
+            turnRealm = persisted.turnRealm ?? "noctweave"
+            turnCredentialLifetimeSeconds = persisted.turnCredentialLifetimeSeconds ?? "600"
+            turnRelayOnlySupported = persisted.turnRelayOnlySupported ?? true
             relayName = persisted.relayName
             operatorNote = persisted.operatorNote
             storageMode = persisted.storageMode
@@ -2777,12 +2882,14 @@ final class ServerViewModel: ObservableObject {
                 relayPasswordConfirmation = relayPassword
                 coordinatorRegistrationToken = try RelaySecretStore.load(account: .coordinatorRegistrationToken) ?? ""
                 tlsIdentityPassword = try RelaySecretStore.load(account: .tlsIdentityPassword) ?? ""
+                turnSharedSecret = try RelaySecretStore.load(account: .turnSharedSecret) ?? ""
                 secretStoreFailure = nil
             } catch {
                 relayPassword = ""
                 relayPasswordConfirmation = ""
                 coordinatorRegistrationToken = ""
                 tlsIdentityPassword = ""
+                turnSharedSecret = ""
                 secretStoreFailure = "Saved relay secrets could not be read from Keychain."
                 logs.append("Saved relay secrets were not loaded; relay startup is blocked until Keychain access is restored.")
             }

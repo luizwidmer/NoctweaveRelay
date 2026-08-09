@@ -1,5 +1,20 @@
 # Noctweave Relay
 
+## Optional call traversal
+
+The app can advertise an externally managed coturn instance through
+`nw.ice-service@1` and issue short-lived TURN REST credentials. Open
+**Transport**, enable **Advertise external STUN / TURN**, enter the public ICE
+URLs, realm, lifetime, and the same shared secret configured as coturn's
+`static-auth-secret`. The secret is stored in Keychain and is never included in
+relay info.
+
+The app does not launch coturn. Publish coturn's TCP/UDP listener and allocation
+port range directly or behind a layer-4 proxy; a normal HTTP reverse proxy
+cannot carry TURN. See the public
+[`coturn_call_traversal.md`](../NoctweaveDocumentation/coturn_call_traversal.md)
+guide for the Docker profile and threat boundaries.
+
 Noctweave Relay is the native macOS operator app for running and configuring a self-hosted Noctweave relay. It uses the sibling `NoctweaveCore` Swift package and provides a graphical control surface for relay networking, storage, access policy, retention, and federation settings.
 
 ## What it includes

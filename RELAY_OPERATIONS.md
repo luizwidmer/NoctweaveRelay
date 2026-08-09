@@ -112,6 +112,20 @@ random capabilities. Direct / Offline Pairing transfers those stages by QR or
 protected file and therefore does not need this service, although each
 participant still needs a standard relay for its private message route.
 
+### Optional coturn traversal
+
+A standard relay may advertise an external STUN/TURN deployment through
+`nw.ice-service@1`. Configure public ICE URLs under **Transport**. TURN URLs
+also require a realm, a 60-3600 second credential lifetime, and the same shared
+secret used as coturn's `static-auth-secret`; the app stores that secret in
+Keychain and returns only short-lived client credentials.
+
+The relay app does not run coturn or proxy TURN packets. Publish coturn's UDP
+and TCP listener plus its allocation range directly or through a layer-4 proxy.
+Ordinary HTTPS reverse proxying applies only to the Noctweave control plane.
+The coturn operator can observe endpoint addresses, timing, and traffic volume,
+while call media remains encrypted by the client media transport.
+
 ## 7. Temporal Bucket
 `Temporal Bucket (minutes)` controls the base timestamp bucketing.
 `Multi-Bucket Schedule (minutes)` is an optional comma-separated list (example: `2,5,11`) used for per-message bucket selection.

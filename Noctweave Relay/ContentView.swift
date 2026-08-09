@@ -888,6 +888,60 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
 
+                        Divider().opacity(0.2)
+
+                        Toggle(
+                            "Advertise external STUN / TURN",
+                            isOn: $model.iceServiceEnabled
+                        )
+                        .disabled(model.relayKind != .standard)
+                        Text(model.callTraversalDescription)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+
+                        if model.iceServiceEnabled {
+                            TextField(
+                                "stun:turn.example.org:3478, turn:turn.example.org:3478?transport=udp",
+                                text: $model.iceURLs,
+                                axis: .vertical
+                            )
+                            .lineLimit(2...5)
+                            .relayFieldStyle()
+
+                            if model.turnCredentialRequired {
+                                HStack {
+                                    Text("TURN realm")
+                                    Spacer()
+                                    TextField("turn.example.org", text: $model.turnRealm)
+                                        .relayFieldStyle()
+                                        .frame(maxWidth: 300)
+                                }
+                                HStack {
+                                    Text("Credential lifetime")
+                                    Spacer()
+                                    TextField("600", text: $model.turnCredentialLifetimeSeconds)
+                                        .relayFieldStyle()
+                                        .frame(width: 92)
+                                    Text("seconds")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                SecureField(
+                                    "coturn shared secret (stored in Keychain)",
+                                    text: $model.turnSharedSecret
+                                )
+                                .relayFieldStyle()
+                                Toggle(
+                                    "Advertise relay-only call support",
+                                    isOn: $model.turnRelayOnlySupported
+                                )
+                            }
+
+                            Text("The macOS relay does not embed coturn. Run coturn separately and use the same shared secret. TURN ports bypass ordinary HTTP reverse proxies; expose them directly or through a layer-4 proxy. Media remains application-encrypted.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
                     }
                     .disabled(model.isRunning)
                     .id(RelayPanel.security)
