@@ -450,9 +450,9 @@ private enum RelayAttachmentStorageValidationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidIPFSAPIEndpoint:
-            return "IPFS attachment storage requires a valid HTTP or HTTPS API endpoint."
+            return "IPFS attachment storage requires HTTPS, or HTTP on a strict loopback endpoint."
         case .invalidIPFSGatewayEndpoint:
-            return "IPFS gateway endpoint must be a valid HTTP or HTTPS URL."
+            return "IPFS gateway endpoint requires HTTPS, or HTTP on a strict loopback endpoint."
         case .invalidIPFSTimeout:
             return "IPFS timeout must be at least 1 second."
         }
@@ -655,17 +655,14 @@ actor RelayOpaqueRouteSnapshotVault {
     }
 
     func load() throws -> OpaqueRouteRelayStateSnapshotV2? {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
-        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-        guard values.isRegularFile == true,
-              values.isSymbolicLink != true,
-              let size = values.fileSize,
-              (1...Self.maximumStoredBytes).contains(size) else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        let encoded = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
-        guard encoded.count <= Self.maximumStoredBytes else {
-            throw CocoaError(.fileReadTooLarge)
+        let encoded: Data
+        do {
+            encoded = try RelaySecureFileIO.read(
+                from: fileURL,
+                maximumBytes: Self.maximumStoredBytes
+            )
+        } catch RelaySecureFileIOError.notFound {
+            return nil
         }
         let envelope = try JSONDecoder().decode(Envelope.self, from: encoded)
         guard envelope.version == Self.version,
@@ -686,11 +683,11 @@ actor RelayOpaqueRouteSnapshotVault {
         guard let combined = sealed.combined else { throw CocoaError(.fileWriteUnknown) }
         let encoded = try JSONEncoder().encode(Envelope(version: Self.version, sealed: combined))
         guard encoded.count <= Self.maximumStoredBytes else { throw CocoaError(.fileWriteOutOfSpace) }
-        let directory = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-        try encoded.write(to: fileURL, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        try RelaySecureFileIO.writePrivate(
+            encoded,
+            to: fileURL,
+            maximumBytes: Self.maximumStoredBytes
+        )
     }
 }
 
@@ -2004,10 +2001,27 @@ final class ServerViewModel: ObservableObject {
               components.fragment == nil,
               components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/",
               components.port != 0,
+              scheme == "https" || Self.isStrictLoopbackHost(components.host ?? ""),
               let url = components.url else {
             return nil
         }
         return url
+    }
+
+    nonisolated private static func isStrictLoopbackHost(_ value: String) -> Bool {
+        var host = value.lowercased()
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            host = String(host.dropFirst().dropLast())
+        }
+        if host.hasSuffix(".") { host.removeLast() }
+        if host == "localhost" || host == "::1" { return true }
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4,
+              let first = UInt8(octets[0]),
+              first == 127 else {
+            return false
+        }
+        return octets.dropFirst().allSatisfy { UInt8($0) != nil }
     }
 
     private func normalizedSQLiteURL(_ url: URL) -> URL {
@@ -2211,8 +2225,16 @@ final class ServerViewModel: ObservableObject {
             lastError = "Federation URL is required."
             return
         }
-        guard let url = URL(string: trimmed), url.scheme?.lowercased() == "https" else {
-            lastError = "Federation URL must be a valid https URL."
+        guard let components = URLComponents(string: trimmed),
+              components.scheme?.lowercased() == "https",
+              components.host?.isEmpty == false,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              components.port != 0,
+              let url = components.url else {
+            lastError = "Federation URL must be an HTTPS URL without credentials, query data, or a fragment."
             return
         }
         federationSourceStatus = "Fetching..."
@@ -2230,14 +2252,45 @@ final class ServerViewModel: ObservableObject {
                 return
             }
             let document = try JSONDecoder().decode(FederationSourceDocument.self, from: data)
+            guard (document.allowlist?.count ?? 0) <= 256,
+                  (document.coordinators?.count ?? 0) <= 64,
+                  (document.coordinatorEntries?.count ?? 0) <= 64,
+                  (document.coordinatorPublicKeys?.count ?? 0) <= 64 else {
+                throw CocoaError(.fileReadTooLarge)
+            }
+            if let modeValue = document.mode {
+                guard let mode = parseFederationMode(modeValue),
+                      mode == federationMode else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+            }
+            if document.allowPrivateFederationEndpoints == true,
+               !allowPrivateFederationEndpoints {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            if document.curatedStrictPolicyEnabled == false,
+               curatedStrictPolicyEnabled {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            if document.curatedRequireSignedDirectory == false,
+               curatedRequireSignedDirectory {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let currentQuorum = Int(curatedCoordinatorQuorum) ?? 1
+            if let quorum = document.curatedCoordinatorQuorum,
+               quorum < currentQuorum {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let currentStaleness = Int(coordinatorDirectoryMaxStalenessSeconds) ?? 300
+            if let staleness = document.coordinatorDirectoryMaxStalenessSeconds,
+               staleness > currentStaleness {
+                throw CocoaError(.fileReadCorruptFile)
+            }
             if let name = document.name {
                 federationName = name
             }
             if let description = document.description {
                 federationDescription = description
-            }
-            if let modeValue = document.mode, let mode = parseFederationMode(modeValue) {
-                federationMode = mode
             }
             if let allowlist = document.allowlist, !allowlist.isEmpty {
                 federationAllowList = allowlist.joined(separator: ", ")
@@ -2258,16 +2311,16 @@ final class ServerViewModel: ObservableObject {
                 coordinatorDirectoryMaxStalenessSeconds = String(max(30, maxStalenessSeconds))
             }
             if let strict = document.curatedStrictPolicyEnabled {
-                curatedStrictPolicyEnabled = strict
+                curatedStrictPolicyEnabled = curatedStrictPolicyEnabled || strict
             }
             if let quorum = document.curatedCoordinatorQuorum, quorum > 0 {
                 curatedCoordinatorQuorum = String(max(1, quorum))
             }
             if let requireSigned = document.curatedRequireSignedDirectory {
-                curatedRequireSignedDirectory = requireSigned
+                curatedRequireSignedDirectory = curatedRequireSignedDirectory || requireSigned
             }
             if let allowPrivate = document.allowPrivateFederationEndpoints {
-                allowPrivateFederationEndpoints = allowPrivate
+                allowPrivateFederationEndpoints = allowPrivateFederationEndpoints && allowPrivate
             }
             federationSourceLastUpdated = Date()
             federationSourceStatus = "Loaded \(document.allowlist?.count ?? 0) allowlist entries."
@@ -2745,37 +2798,28 @@ final class ServerViewModel: ObservableObject {
             envelope,
             sortedKeys: true
         )
-        let directory = url.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-        }
-        try data.write(to: url, options: [.atomic])
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: url.path
+        try RelaySecureFileIO.writePrivate(
+            data,
+            to: url,
+            maximumBytes: 8_000_000
         )
     }
 
     nonisolated private static func loadNamespaceRecords(
         from url: URL
     ) throws -> [NoctwebNamespaceRecordV1]? {
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        let data: Data
+        do {
+            data = try RelaySecureFileIO.read(
+                from: url,
+                maximumBytes: 8_000_000
+            )
+        } catch RelaySecureFileIOError.notFound {
             return nil
-        }
-        let values = try url.resourceValues(
-            forKeys: [.isRegularFileKey, .fileSizeKey]
-        )
-        guard values.isRegularFile == true,
-              let size = values.fileSize,
-              (1...8_000_000).contains(size) else {
-            throw CocoaError(.fileReadCorruptFile)
         }
         let envelope = try NoctweaveCoder.decode(
             PersistedNoctwebNamespaceLedger.self,
-            from: Data(contentsOf: url, options: [.mappedIfSafe])
+            from: data
         )
         guard envelope.version == NoctwebNamespaceConsensusV1.version else {
             throw CocoaError(.fileReadCorruptFile)
@@ -3084,15 +3128,11 @@ final class ServerViewModel: ObservableObject {
             try RelaySecretStore.save(coordinatorRegistrationToken, account: .coordinatorRegistrationToken)
             try RelaySecretStore.save(tlsIdentityPassword, account: .tlsIdentityPassword)
             try RelaySecretStore.save(turnSharedSecret, account: .turnSharedSecret)
-            let directory = settingsURL.deletingLastPathComponent()
-            if !FileManager.default.fileExists(atPath: directory.path) {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            }
             let data = try JSONEncoder().encode(settings)
-            try data.write(to: settingsURL, options: [.atomic])
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: settingsURL.path
+            try RelaySecureFileIO.writePrivate(
+                data,
+                to: settingsURL,
+                maximumBytes: 1_048_576
             )
             secretStoreFailure = nil
         } catch {
@@ -3105,20 +3145,11 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func loadPersistedSettingsIfAvailable() {
-        guard FileManager.default.fileExists(atPath: settingsURL.path) else {
-            return
-        }
         do {
-            let values = try settingsURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            guard values.isRegularFile == true,
-                  let fileSize = values.fileSize,
-                  (1...1_048_576).contains(fileSize) else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
-            let data = try Data(contentsOf: settingsURL)
-            guard data.count <= 1_048_576 else {
-                throw CocoaError(.fileReadTooLarge)
-            }
+            let data = try RelaySecureFileIO.read(
+                from: settingsURL,
+                maximumBytes: 1_048_576
+            )
             let persisted = try JSONDecoder().decode(PersistedSettings.self, from: data)
             isApplyingPersistedSettings = true
             host = persisted.host
@@ -3218,6 +3249,8 @@ final class ServerViewModel: ObservableObject {
                 logs.append("Saved relay secrets were not loaded; relay startup is blocked until Keychain access is restored.")
             }
             isApplyingPersistedSettings = false
+        } catch RelaySecureFileIOError.notFound {
+            return
         } catch {
             isApplyingPersistedSettings = false
             logs.append("Failed to load persisted settings: \(redactedRelayAppError(error, fallback: "Settings could not be loaded."))")

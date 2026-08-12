@@ -303,10 +303,10 @@ final class ManagedCoturnService: ObservableObject {
                         : recentLog.split(separator: "\n").last.map(String.init) ?? "Managed coturn failed."
                 )
             }
-            try? FileManager.default.removeItem(at: configurationURL)
+            Self.removePrivateConfiguration(at: configurationURL)
             state = .running(processIdentifier: process.processIdentifier)
         } catch {
-            try? FileManager.default.removeItem(at: configurationURL)
+            Self.removePrivateConfiguration(at: configurationURL)
             outputPipe.fileHandleForReading.readabilityHandler = nil
             self.outputPipe = nil
             self.process = nil
@@ -340,21 +340,29 @@ final class ManagedCoturnService: ObservableObject {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("NoctweaveRelay", isDirectory: true)
             .appendingPathComponent("ManagedCoturn", isDirectory: true)
-        try FileManager.default.createDirectory(
+        try RelaySecureFileIO.ensurePrivateDirectory(at: base)
+        for staleEntry in try FileManager.default.contentsOfDirectory(
             at: base,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
+            includingPropertiesForKeys: nil
+        ) {
+            try? FileManager.default.removeItem(at: staleEntry)
+        }
+        let privateDirectory = base.appendingPathComponent(
+            UUID().uuidString.lowercased(),
+            isDirectory: true
         )
-        let url = base.appendingPathComponent("turnserver.conf")
-        try Data(configuration.configurationText.utf8).write(
+        try RelaySecureFileIO.ensurePrivateDirectory(at: privateDirectory)
+        let url = privateDirectory.appendingPathComponent("turnserver.conf")
+        try RelaySecureFileIO.writePrivate(
+            Data(configuration.configurationText.utf8),
             to: url,
-            options: .atomic
-        )
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: url.path
+            maximumBytes: 16 * 1_024
         )
         return url
+    }
+
+    private static func removePrivateConfiguration(at url: URL) {
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     private func record(_ rawText: String) {

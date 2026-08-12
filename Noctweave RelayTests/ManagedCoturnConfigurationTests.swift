@@ -122,8 +122,12 @@ final class ManagedCoturnConfigurationTests: XCTestCase {
         defer { service.stop() }
 
         XCTAssertTrue(service.state.isRunning)
-        let transientConfiguration = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NoctweaveRelay/ManagedCoturn/turnserver.conf")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: transientConfiguration.path))
+        let transientRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NoctweaveRelay/ManagedCoturn", isDirectory: true)
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: transientRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertTrue(entries.isEmpty)
     }
 }

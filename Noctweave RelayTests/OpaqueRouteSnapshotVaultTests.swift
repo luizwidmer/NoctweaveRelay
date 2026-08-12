@@ -34,4 +34,27 @@ final class OpaqueRouteSnapshotVaultTests: XCTestCase {
             XCTAssertNotNil(error)
         }
     }
+
+    func testSnapshotVaultRejectsSymlinkedState() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NoctweaveRelayVaultSymlink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let realURL = directory.appendingPathComponent("real.nwstate")
+        try Data([0x01]).write(to: realURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: realURL.path)
+        let linkedURL = directory.appendingPathComponent("opaque-routes.nwstate")
+        try FileManager.default.createSymbolicLink(at: linkedURL, withDestinationURL: realURL)
+        let vault = try RelayOpaqueRouteSnapshotVault(
+            fileURL: linkedURL,
+            keyData: Data(repeating: 0xA7, count: 32)
+        )
+
+        do {
+            _ = try await vault.load()
+            XCTFail("Symlinked snapshot state must not load")
+        } catch {
+            XCTAssertNotNil(error)
+        }
+    }
 }
