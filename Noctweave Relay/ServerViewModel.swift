@@ -780,6 +780,7 @@ final class ServerViewModel: ObservableObject {
     @Published var advertisedEndpoint: String = ""
     @Published var noctwebRelaySuffix: String = ""
     @Published var noctwebHostingEnabled: Bool = false
+    @Published var noctwebDataEnabled: Bool = false
     @Published private(set) var claimedNoctwebSuffix: String?
     @Published private(set) var noctwebHostSigningPublicKey: Data?
     @Published private(set) var namespacePropagationStatus: String?
@@ -862,6 +863,7 @@ final class ServerViewModel: ObservableObject {
     private var opaqueRouteSnapshotVault: RelayOpaqueRouteSnapshotVault?
     private var relayIdentityKeyMaterial: RelayIdentityKeyMaterialV1?
     private var noctwebHostStore: RelayNoctwebHostStore?
+    private var noctwebDataStore: RelayNoctwebDataStore?
     let softwareVersion: String
     private let defaultRelayPort: UInt16 = 9339
     private var settingsCancellables: Set<AnyCancellable> = []
@@ -1070,6 +1072,10 @@ final class ServerViewModel: ObservableObject {
         relayKind == .host || noctwebHostingEnabled
     }
 
+    var effectiveNoctwebDataEnabled: Bool {
+        effectiveNoctwebHostingEnabled && noctwebDataEnabled
+    }
+
     var noctwebHostSigningIdentity: String {
         guard let noctwebHostSigningPublicKey else {
             return effectiveNoctwebHostingEnabled
@@ -1087,6 +1093,16 @@ final class ServerViewModel: ObservableObject {
             return "RAM only · cleared when the relay stops."
         }
         return noctwebHostDirectoryURL(for: storeURL).path
+    }
+
+    var noctwebDataStorageDescription: String {
+        guard effectiveNoctwebDataEnabled else {
+            return "Site data collections are disabled."
+        }
+        guard let storeURL = resolvedStoreURL() else {
+            return "RAM only · cleared when the relay stops."
+        }
+        return "SQLite · \(storeURL.path)"
     }
 
     init() {
@@ -1284,6 +1300,19 @@ final class ServerViewModel: ObservableObject {
         noctwebHostStore = runtimeNoctwebHostStore
         noctwebHostSigningPublicKey =
             runtimeNoctwebHostStore?.signingPublicKey
+        let runtimeNoctwebDataStore: RelayNoctwebDataStore?
+        do {
+            runtimeNoctwebDataStore = try makeNoctwebDataStore(
+                storeURL: resolvedStoreURL
+            )
+        } catch {
+            lastError = redactedRelayAppError(
+                error,
+                fallback: "Noctweb site data storage is unavailable."
+            )
+            return
+        }
+        noctwebDataStore = runtimeNoctwebDataStore
         let runtimeOpaqueRouteStore = OpaqueRouteRelayStoreV2()
         opaqueRouteStore = runtimeOpaqueRouteStore
         opaqueRouteSnapshotVault = snapshotVault
@@ -1299,6 +1328,7 @@ final class ServerViewModel: ObservableObject {
             configuration: configuration,
             relayIdentity: relayIdentityKeyMaterial,
             noctwebHostStore: runtimeNoctwebHostStore,
+            noctwebDataStore: runtimeNoctwebDataStore,
             coturnCredentialIssuer: makeCoturnCredentialIssuer()
         )
         configureNamespacePersistence(on: server)
@@ -1847,6 +1877,7 @@ final class ServerViewModel: ObservableObject {
             advertisedEndpoint: advertisedRelayEndpoint,
             noctwebRelaySuffix: configuredNoctwebSuffix(),
             netHostEnabled: effectiveNoctwebHostingEnabled,
+            noctwebDataEnabled: effectiveNoctwebDataEnabled,
             federationAllowList: allowList,
             allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
             rendezvousTransportEnabled: effectiveRendezvousTransportEnabled
@@ -1945,6 +1976,17 @@ final class ServerViewModel: ObservableObject {
         )
         try hostStore.load()
         return hostStore
+    }
+
+    private func makeNoctwebDataStore(
+        storeURL: URL?
+    ) throws -> RelayNoctwebDataStore? {
+        guard effectiveNoctwebDataEnabled else {
+            return nil
+        }
+        let dataStore = RelayNoctwebDataStore(fileURL: storeURL)
+        try dataStore.load()
+        return dataStore
     }
 
     private func noctwebHostDirectoryURL(
@@ -2854,6 +2896,7 @@ final class ServerViewModel: ObservableObject {
         var advertisedEndpoint: String
         var noctwebRelaySuffix: String?
         var noctwebHostingEnabled: Bool?
+        var noctwebDataEnabled: Bool?
         var federationSourceURL: String
         var temporalBucketMode: RelayTemporalBucketMode?
         var temporalBucketMinutes: String
@@ -2933,6 +2976,7 @@ final class ServerViewModel: ObservableObject {
             $advertisedEndpoint.map { _ in () }.eraseToAnyPublisher(),
             $noctwebRelaySuffix.map { _ in () }.eraseToAnyPublisher(),
             $noctwebHostingEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $noctwebDataEnabled.map { _ in () }.eraseToAnyPublisher(),
             $federationSourceURL.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMode.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMinutes.map { _ in () }.eraseToAnyPublisher(),
@@ -3063,6 +3107,7 @@ final class ServerViewModel: ObservableObject {
             advertisedEndpoint: advertisedEndpoint,
             noctwebRelaySuffix: noctwebRelaySuffix,
             noctwebHostingEnabled: noctwebHostingEnabled,
+            noctwebDataEnabled: noctwebDataEnabled,
             federationSourceURL: federationSourceURL,
             temporalBucketMode: temporalBucketMode,
             temporalBucketMinutes: temporalBucketMinutes,
@@ -3176,6 +3221,7 @@ final class ServerViewModel: ObservableObject {
             noctwebRelaySuffix = persisted.noctwebRelaySuffix ?? ""
             noctwebHostingEnabled =
                 persisted.noctwebHostingEnabled ?? false
+            noctwebDataEnabled = persisted.noctwebDataEnabled ?? false
             federationSourceURL = persisted.federationSourceURL
             temporalBucketMinutes = persisted.temporalBucketMinutes
             temporalBucketScheduleMinutes = persisted.temporalBucketScheduleMinutes

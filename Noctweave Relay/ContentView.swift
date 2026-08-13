@@ -882,6 +882,64 @@ struct ContentView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .center, spacing: 14) {
+                                Image(systemName: "externaldrive.badge.icloud")
+                                    .font(.title2)
+                                    .foregroundStyle(
+                                        model.effectiveNoctwebDataEnabled
+                                            ? .mint
+                                            : .secondary
+                                    )
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Site data service")
+                                        .font(.headline)
+                                    Text(
+                                        "Origin-scoped catalogs, carts, profiles, and orders with signed access policies."
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 18)
+                                Toggle("", isOn: $model.noctwebDataEnabled)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .tint(.mint)
+                                    .disabled(
+                                        model.isRunning
+                                            || !model.effectiveNoctwebHostingEnabled
+                                    )
+                            }
+
+                            if model.effectiveNoctwebDataEnabled {
+                                federationDetailRow(
+                                    "Protocol module",
+                                    value: "nw.noctweb-data@1"
+                                )
+                                federationDetailRow(
+                                    "Persistence",
+                                    value: model.noctwebDataStorageDescription
+                                )
+                                Text(
+                                    "Pages receive a bounded origin capability, never relay credentials or signing keys. Private application fields require application encryption; the relay can observe collection metadata and access timing. HTTPS, WSS, TLS, trusted proxy TLS, or literal loopback is required."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            } else if !model.effectiveNoctwebHostingEnabled {
+                                Text("Enable Noctweb hosting before enabling site data.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(14)
+                        .premiumSurface(
+                            cornerRadius: 14,
+                            tintOpacity:
+                                model.effectiveNoctwebDataEnabled
+                                    ? 0.12
+                                    : 0.06
+                        )
+
+                        VStack(alignment: .leading, spacing: 12) {
                             Label(
                                 "Authenticated Federation Namespace",
                                 systemImage: "signature"
