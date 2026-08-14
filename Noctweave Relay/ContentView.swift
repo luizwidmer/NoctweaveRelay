@@ -919,8 +919,18 @@ struct ContentView: View {
                                     "Persistence",
                                     value: model.noctwebDataStorageDescription
                                 )
+                                Toggle(
+                                    "Allow privileged database creation",
+                                    isOn: $model.noctwebDataDatabaseCreationEnabled
+                                )
+                                .disabled(model.isRunning)
                                 Text(
-                                    "Pages receive a bounded origin capability, never relay credentials or signing keys. Private application fields require application encryption; the relay can observe collection metadata and access timing. HTTPS, WSS, TLS, trusted proxy TLS, or literal loopback is required."
+                                    "Default off. Enabling creation also requires a relay password; ordinary hosted pages never receive it."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                Text(
+                                    "Pages receive a bounded origin capability, never relay credentials or signing keys. Record payloads must be authenticated ciphertext with verifiable author provenance; the relay can still observe collection metadata, sizes, revisions, and access timing. HTTPS, WSS, TLS, trusted proxy TLS, or literal loopback is required."
                                 )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

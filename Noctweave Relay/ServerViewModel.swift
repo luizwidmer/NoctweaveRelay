@@ -781,6 +781,7 @@ final class ServerViewModel: ObservableObject {
     @Published var noctwebRelaySuffix: String = ""
     @Published var noctwebHostingEnabled: Bool = false
     @Published var noctwebDataEnabled: Bool = false
+    @Published var noctwebDataDatabaseCreationEnabled: Bool = false
     @Published private(set) var claimedNoctwebSuffix: String?
     @Published private(set) var noctwebHostSigningPublicKey: Data?
     @Published private(set) var namespacePropagationStatus: String?
@@ -1076,6 +1077,10 @@ final class ServerViewModel: ObservableObject {
         effectiveNoctwebHostingEnabled && noctwebDataEnabled
     }
 
+    var effectiveNoctwebDataDatabaseCreationEnabled: Bool {
+        effectiveNoctwebDataEnabled && noctwebDataDatabaseCreationEnabled
+    }
+
     var noctwebHostSigningIdentity: String {
         guard let noctwebHostSigningPublicKey else {
             return effectiveNoctwebHostingEnabled
@@ -1180,6 +1185,11 @@ final class ServerViewModel: ObservableObject {
                 lastError = "Relay password confirmation does not match."
                 return
             }
+        }
+        if effectiveNoctwebDataDatabaseCreationEnabled,
+           trimmedPassword.isEmpty {
+            lastError = "Noctweb database creation requires a relay password and is disabled by default."
+            return
         }
         let trimmedTLSPath = tlsIdentityPKCS12Path.trimmingCharacters(in: .whitespacesAndNewlines)
         if transportSecurityMode.usesRelayTLS {
@@ -1352,6 +1362,9 @@ final class ServerViewModel: ObservableObject {
                 if resolvedStoreURL != nil {
                     try await store.loadFromDisk()
                 }
+                // The primary relay schema must own creation of the shared
+                // SQLite file before feature tables are opened.
+                try runtimeNoctwebDataStore?.load()
                 if let snapshot = try await snapshotVault?.load() {
                     try await runtimeOpaqueRouteStore.restore(snapshot)
                 }
@@ -1878,6 +1891,8 @@ final class ServerViewModel: ObservableObject {
             noctwebRelaySuffix: configuredNoctwebSuffix(),
             netHostEnabled: effectiveNoctwebHostingEnabled,
             noctwebDataEnabled: effectiveNoctwebDataEnabled,
+            noctwebDataDatabaseCreationEnabled:
+                effectiveNoctwebDataDatabaseCreationEnabled,
             federationAllowList: allowList,
             allowPrivateFederationEndpoints: allowPrivateFederationEndpoints,
             rendezvousTransportEnabled: effectiveRendezvousTransportEnabled
@@ -1985,7 +2000,6 @@ final class ServerViewModel: ObservableObject {
             return nil
         }
         let dataStore = RelayNoctwebDataStore(fileURL: storeURL)
-        try dataStore.load()
         return dataStore
     }
 
@@ -2897,6 +2911,7 @@ final class ServerViewModel: ObservableObject {
         var noctwebRelaySuffix: String?
         var noctwebHostingEnabled: Bool?
         var noctwebDataEnabled: Bool?
+        var noctwebDataDatabaseCreationEnabled: Bool?
         var federationSourceURL: String
         var temporalBucketMode: RelayTemporalBucketMode?
         var temporalBucketMinutes: String
@@ -2977,6 +2992,7 @@ final class ServerViewModel: ObservableObject {
             $noctwebRelaySuffix.map { _ in () }.eraseToAnyPublisher(),
             $noctwebHostingEnabled.map { _ in () }.eraseToAnyPublisher(),
             $noctwebDataEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $noctwebDataDatabaseCreationEnabled.map { _ in () }.eraseToAnyPublisher(),
             $federationSourceURL.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMode.map { _ in () }.eraseToAnyPublisher(),
             $temporalBucketMinutes.map { _ in () }.eraseToAnyPublisher(),
@@ -3108,6 +3124,8 @@ final class ServerViewModel: ObservableObject {
             noctwebRelaySuffix: noctwebRelaySuffix,
             noctwebHostingEnabled: noctwebHostingEnabled,
             noctwebDataEnabled: noctwebDataEnabled,
+            noctwebDataDatabaseCreationEnabled:
+                noctwebDataDatabaseCreationEnabled,
             federationSourceURL: federationSourceURL,
             temporalBucketMode: temporalBucketMode,
             temporalBucketMinutes: temporalBucketMinutes,
@@ -3222,6 +3240,8 @@ final class ServerViewModel: ObservableObject {
             noctwebHostingEnabled =
                 persisted.noctwebHostingEnabled ?? false
             noctwebDataEnabled = persisted.noctwebDataEnabled ?? false
+            noctwebDataDatabaseCreationEnabled =
+                persisted.noctwebDataDatabaseCreationEnabled ?? false
             federationSourceURL = persisted.federationSourceURL
             temporalBucketMinutes = persisted.temporalBucketMinutes
             temporalBucketScheduleMinutes = persisted.temporalBucketScheduleMinutes
