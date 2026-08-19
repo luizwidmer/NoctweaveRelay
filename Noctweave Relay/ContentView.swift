@@ -86,6 +86,13 @@ struct ContentView: View {
         )
     }
 
+    private var pairingLobbyBinding: Binding<Bool> {
+        Binding(
+            get: { model.pairingLobbyEnabled },
+            set: { model.setPairingLobbyEnabled($0) }
+        )
+    }
+
     private var callTraversalEnabledBinding: Binding<Bool> {
         Binding(
             get: { model.iceServiceEnabled },
@@ -260,6 +267,17 @@ struct ContentView: View {
                         ))
                             .font(.caption2)
                             .foregroundStyle(model.rendezvousTransportEnabled && !model.effectiveRendezvousTransportEnabled ? .orange : .secondary)
+                        Toggle("Same-relay pairing lobby", isOn: pairingLobbyBinding)
+                        Text(model.pairingLobbyEnabled
+                             ? "Explicitly enabled. Realtime routes and one-use rendezvous are enabled as dependencies; clients may publish signed random badges for at most two minutes."
+                             : "Disabled by default. Clients must exchange their one-use invitation through QR, share, file, or paste.")
+                            .font(.caption2)
+                            .foregroundStyle(model.pairingLobbyEnabled ? Color.orange : Color.secondary)
+                        if model.pairingLobbyEnabled && model.relayKind != .standard {
+                            Text("Select the Standard relay kind before the lobby can be advertised.")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
                         Toggle("Advertise hidden retrieval", isOn: $model.hiddenRetrievalEnabled)
                         if model.hiddenRetrievalEnabled {
                             Picker("Mode", selection: $model.hiddenRetrievalMode) {
@@ -495,6 +513,7 @@ struct ContentView: View {
                                          : "NoctCord media uploads are not advertised. Text and realtime signaling can remain available.")
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
+
                                 }
                             }
                             .disabled(model.isRunning)

@@ -49,6 +49,7 @@ both coturn and the relay.
 - TCP and HTTP endpoint configuration, with native TLS or TLS reverse-proxy support
 - Password-based relay access control
 - Optional bounded one-use rendezvous for Relay Pairing
+- Default-off same-relay pairing discovery with two-minute process-local listings
 - Attachment retention and temporal-bucketing controls
 - Configurable NoctCord realtime routes, durable shared logs, presence, and media blobs
 - Explicit `solo`, `manual`, `curated`, and `open` federation modes

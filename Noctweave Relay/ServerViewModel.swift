@@ -798,6 +798,7 @@ final class ServerViewModel: ObservableObject {
     @Published var sharedLogsEnabled: Bool = true
     @Published var ephemeralPresenceEnabled: Bool = true
     @Published var mediaBlobsEnabled: Bool = true
+    @Published var pairingLobbyEnabled: Bool = false
     @Published var rendezvousTransportEnabled: Bool = RelayRuntimePolicy.defaultRendezvousTransportEnabled
     @Published var attachmentStorageBackend: RelayAttachmentStorageBackend = .inline
     @Published var ipfsAPIEndpoint: String = "http://127.0.0.1:5001"
@@ -963,6 +964,7 @@ final class ServerViewModel: ObservableObject {
             || sharedLogsEnabled
             || ephemeralPresenceEnabled
             || mediaBlobsEnabled
+            || pairingLobbyEnabled
     }
 
     var noctCordImmediateDeliveryEnabled: Bool {
@@ -1020,11 +1022,21 @@ final class ServerViewModel: ObservableObject {
         sharedLogsEnabled = enabled
         ephemeralPresenceEnabled = enabled
         mediaBlobsEnabled = enabled
+        if !enabled { pairingLobbyEnabled = false }
     }
 
     func setNoctCordImmediateDelivery(_ enabled: Bool) {
         guard !isRunning else { return }
         temporalBucketMode = enabled ? .disabled : .single
+    }
+
+    func setPairingLobbyEnabled(_ enabled: Bool) {
+        guard !isRunning else { return }
+        pairingLobbyEnabled = enabled
+        if enabled {
+            realtimeRoutesEnabled = true
+            rendezvousTransportEnabled = true
+        }
     }
 
     func applyNoctCordRecommendedProfile() {
@@ -1050,6 +1062,7 @@ final class ServerViewModel: ObservableObject {
         sharedLogsEnabled = false
         ephemeralPresenceEnabled = false
         mediaBlobsEnabled = false
+        pairingLobbyEnabled = false
         hiddenRetrievalEnabled = false
         onionTransportEnabled = false
         mixnetTransportEnabled = false
@@ -1864,6 +1877,7 @@ final class ServerViewModel: ObservableObject {
             sharedLogsEnabled: sharedLogsEnabled,
             ephemeralPresenceEnabled: ephemeralPresenceEnabled,
             mediaBlobsEnabled: mediaBlobsEnabled,
+            pairingLobbyEnabled: pairingLobbyEnabled,
             relayName: trimmedRelayName.isEmpty ? nil : trimmedRelayName,
             operatorNote: note.isEmpty ? nil : note,
             softwareVersion: softwareVersion,
@@ -2923,6 +2937,7 @@ final class ServerViewModel: ObservableObject {
         var sharedLogsEnabled: Bool?
         var ephemeralPresenceEnabled: Bool?
         var mediaBlobsEnabled: Bool?
+        var pairingLobbyEnabled: Bool?
         var rendezvousTransportEnabled: Bool?
         var attachmentStorageBackend: RelayAttachmentStorageBackend?
         var ipfsAPIEndpoint: String?
@@ -3004,6 +3019,7 @@ final class ServerViewModel: ObservableObject {
             $sharedLogsEnabled.map { _ in () }.eraseToAnyPublisher(),
             $ephemeralPresenceEnabled.map { _ in () }.eraseToAnyPublisher(),
             $mediaBlobsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $pairingLobbyEnabled.map { _ in () }.eraseToAnyPublisher(),
             $rendezvousTransportEnabled.map { _ in () }.eraseToAnyPublisher(),
             $attachmentStorageBackend.map { _ in () }.eraseToAnyPublisher(),
             $ipfsAPIEndpoint.map { _ in () }.eraseToAnyPublisher(),
@@ -3137,6 +3153,7 @@ final class ServerViewModel: ObservableObject {
             sharedLogsEnabled: sharedLogsEnabled,
             ephemeralPresenceEnabled: ephemeralPresenceEnabled,
             mediaBlobsEnabled: mediaBlobsEnabled,
+            pairingLobbyEnabled: pairingLobbyEnabled,
             rendezvousTransportEnabled: rendezvousTransportEnabled,
             attachmentStorageBackend: attachmentStorageBackend,
             ipfsAPIEndpoint: ipfsAPIEndpoint,
@@ -3257,6 +3274,7 @@ final class ServerViewModel: ObservableObject {
             sharedLogsEnabled = persisted.sharedLogsEnabled ?? true
             ephemeralPresenceEnabled = persisted.ephemeralPresenceEnabled ?? true
             mediaBlobsEnabled = persisted.mediaBlobsEnabled ?? true
+            pairingLobbyEnabled = persisted.pairingLobbyEnabled ?? false
             rendezvousTransportEnabled = persisted.rendezvousTransportEnabled ?? RelayRuntimePolicy.defaultRendezvousTransportEnabled
             attachmentStorageBackend = persisted.attachmentStorageBackend ?? .inline
             ipfsAPIEndpoint = persisted.ipfsAPIEndpoint ?? "http://127.0.0.1:5001"

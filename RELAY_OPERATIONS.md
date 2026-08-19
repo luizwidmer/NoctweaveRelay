@@ -112,6 +112,20 @@ random capabilities. Direct / Offline Pairing transfers those stages by QR or
 protected file and therefore does not need this service, although each
 participant still needs a standard relay for its private message route.
 
+### Same-relay pairing lobby
+
+`Same-relay pairing lobby` is a separate default-off discovery switch. It is
+effective only for a Standard relay with realtime routes enabled and uses the
+same confidential-transport gate as rendezvous. A visible client publishes a
+fresh signed, session-only badge for at most two minutes; requests, approval,
+and the ordinary one-use invitation travel through disposable PQ-encrypted
+routes.
+
+The listing is enumerable to every client allowed to use the relay and exposes
+timing and traffic metadata, though it contains no persona name or relationship
+material. Prefer a relay password and edge rate limits on public deployments.
+Listings are process-local, capped at 32, and disappear on relay restart.
+
 ### Optional coturn traversal
 
 A standard relay may advertise STUN/TURN through `nw.ice-service@1`. Under
