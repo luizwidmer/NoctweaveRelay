@@ -1454,16 +1454,16 @@ struct ContentView: View {
                     icon: "globe",
                     color: model.effectiveNoctwebHostingEnabled ? .green : .secondary
                 )
-                overviewSummaryCard(
-                    title: "NoctCord",
-                    value: model.noctCordServiceTier,
-                    detail: model.noctCordServiceDescription,
-                    icon: "bubble.left.and.bubble.right.fill",
-                    color: model.noctCordServicesEnabled
-                        ? (model.noctCordReadinessIssues.isEmpty ? .green : .orange)
-                        : .secondary
-                )
             }
+            overviewSummaryCard(
+                title: "NoctCord",
+                value: model.noctCordServiceTier,
+                detail: model.noctCordServiceDescription,
+                icon: "bubble.left.and.bubble.right.fill",
+                color: model.noctCordServicesEnabled
+                    ? (model.noctCordReadinessIssues.isEmpty ? .green : .orange)
+                    : .secondary
+            )
 
             HStack(spacing: 10) {
                 Text("Configure")

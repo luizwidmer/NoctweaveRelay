@@ -14,7 +14,7 @@ enum RelaySecureFileIOError: Error {
 /// links and non-regular files, bounds reads, and replaces files atomically
 /// from inside an owner-only directory.
 enum RelaySecureFileIO {
-    static func read(
+    nonisolated static func read(
         from url: URL,
         maximumBytes: Int,
         requirePrivateOwner: Bool = true
@@ -74,7 +74,7 @@ enum RelaySecureFileIO {
         return data
     }
 
-    static func ensurePrivateDirectory(at url: URL) throws {
+    nonisolated static func ensurePrivateDirectory(at url: URL) throws {
         try FileManager.default.createDirectory(
             at: url,
             withIntermediateDirectories: true,
@@ -95,7 +95,7 @@ enum RelaySecureFileIO {
         }
     }
 
-    static func writePrivate(
+    nonisolated static func writePrivate(
         _ data: Data,
         to fileURL: URL,
         maximumBytes: Int

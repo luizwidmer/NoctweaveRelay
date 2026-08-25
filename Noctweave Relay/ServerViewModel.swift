@@ -3,6 +3,9 @@ import CryptoKit
 import Foundation
 import NoctweaveCore
 import Network
+#if os(macOS) && canImport(LocalAuthentication)
+import LocalAuthentication
+#endif
 #if canImport(Security)
 import Security
 #endif
@@ -534,6 +537,27 @@ private final class PermissionProbeGate: @unchecked Sendable {
 }
 
 #if canImport(Security)
+private final class RelayVolatileSecretStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+
+    func load(account: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values[account]
+    }
+
+    func save(_ value: String, account: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if value.isEmpty {
+            values.removeValue(forKey: account)
+        } else {
+            values[account] = value
+        }
+    }
+}
+
 private enum RelaySecretStore {
     enum Account: String {
         case relayPassword = "relay-password"
@@ -548,16 +572,26 @@ private enum RelaySecretStore {
     }
 
     private static let service = "com.noctweave.relay.configuration"
+    private static let volatileTestingStore = RelayVolatileSecretStore()
+
+    /// An explicitly requested XCTest run uses process-local secrets. This
+    /// prevents an ad-hoc-signed test host from touching production Keychain
+    /// records whose ACL belongs to the normally signed application.
+    private static var usesVolatileTestingStore: Bool {
+        #if NOCTWEAVE_XCTEST_VOLATILE_KEYCHAIN
+        return true
+        #else
+        return false
+        #endif
+    }
 
     static func load(account: Account) throws -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account.rawValue,
-            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true
-        ]
+        if usesVolatileTestingStore {
+            return volatileTestingStore.load(account: account.rawValue)
+        }
+        var query = nonInteractiveQuery(account: account)
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecReturnData as String] = true
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
@@ -572,7 +606,12 @@ private enum RelaySecretStore {
     }
 
     static func save(_ value: String, account: Account) throws {
-        let query: [String: Any] = [
+        if usesVolatileTestingStore {
+            volatileTestingStore.save(value, account: account.rawValue)
+            return
+        }
+        let query = nonInteractiveQuery(account: account)
+        let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account.rawValue,
@@ -598,12 +637,28 @@ private enum RelaySecretStore {
             throw RelaySecretStoreError.keychain(updateStatus)
         }
 
-        var attributes = query
+        var attributes = baseQuery
         attributes[kSecValueData as String] = data
         let addStatus = SecItemAdd(attributes as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw RelaySecretStoreError.keychain(addStatus)
         }
+    }
+
+    private static func nonInteractiveQuery(account: Account) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account.rawValue,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any
+        ]
+        #if os(macOS)
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext as String] = authenticationContext
+        query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUISkip
+        #endif
+        return query
     }
 }
 

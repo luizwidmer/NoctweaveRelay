@@ -79,6 +79,11 @@ xcodebuild \
   build
 ```
 
+For tests, use the root-level `scripts/run-native-app-tests.sh relay` command.
+It uses ad-hoc local signing, a fresh test-only bundle identifier, and
+process-local XCTest secrets, so it neither claims the production sandbox nor
+unlocks a developer signing certificate or touches production Keychain records.
+
 See [RELAY_OPERATIONS.md](RELAY_OPERATIONS.md) for configuration and operating details.
 
 ## App identity migration
