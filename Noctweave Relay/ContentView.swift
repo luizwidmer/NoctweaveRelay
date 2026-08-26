@@ -19,6 +19,9 @@ struct ContentView: View {
     @State private var showingRelayIdentityRotation = false
     @State private var showingNoctwebSuffixRelease = false
     @State private var showingAdvancedCallTraversal = false
+    @State private var showingAdvancedRelayProfile = false
+    @State private var showingAdvancedStorage = false
+    @State private var showingListenerSettings = false
     @State private var selectedPanel: RelayPanel = .overview
 
     private enum RelayPanel: String, CaseIterable, Identifiable {
@@ -278,6 +281,11 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.orange)
                         }
+                        DisclosureGroup(
+                            "Advanced privacy and delivery",
+                            isExpanded: $showingAdvancedRelayProfile
+                        ) {
+                        VStack(alignment: .leading, spacing: 10) {
                         Toggle("Advertise hidden retrieval", isOn: $model.hiddenRetrievalEnabled)
                         if model.hiddenRetrievalEnabled {
                             Picker("Mode", selection: $model.hiddenRetrievalMode) {
@@ -406,6 +414,9 @@ struct ContentView: View {
                              : "No wake policy is advertised. Clients fall back to local polling defaults.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 8)
+                        }
                         Divider().opacity(0.2)
                         TextField("Relay Name (optional)", text: $model.relayName)
                             .relayFieldStyle()
@@ -727,20 +738,28 @@ struct ContentView: View {
                         }
                         .pickerStyle(.segmented)
                         if model.storageMode == .disk {
-                            HStack(spacing: 8) {
-                                TextField("Store file path", text: $model.storePath)
-                                    .relayFieldStyle()
-                                Button("Choose…") { model.chooseStorePath() }
-                                    .relayButton()
-                                Button("Default") { model.resetStorePathToDefault() }
-                                    .relayButton()
+                            Text("Disk mode persists relay state at the selected location.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            DisclosureGroup(
+                                "Advanced disk location",
+                                isExpanded: $showingAdvancedStorage
+                            ) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(model.storageLocationDescription)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    HStack(spacing: 8) {
+                                        TextField("Store file path", text: $model.storePath)
+                                            .relayFieldStyle()
+                                        Button("Choose…") { model.chooseStorePath() }
+                                            .relayButton()
+                                        Button("Default") { model.resetStorePathToDefault() }
+                                            .relayButton()
+                                    }
+                                }
+                                .padding(.top, 8)
                             }
-                            Text("Disk mode persists relay state at the selected path.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(model.storageLocationDescription)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
                         } else {
                             Text("RAM mode is ephemeral. Relay state is lost when the relay stops.")
                                 .font(.caption2)
@@ -1298,7 +1317,8 @@ struct ContentView: View {
 
             VStack(spacing: 6) {
                 ForEach(RelayPanel.allCases) { panel in
-                    if panel != .federation || model.federationMode != .solo {
+                    if (panel != .federation || model.federationMode != .solo)
+                        && (panel != .logs || model.isRunning || !model.logs.isEmpty || selectedPanel == .logs) {
                         Button {
                             selectedPanel = panel
                         } label: {
@@ -1396,15 +1416,17 @@ struct ContentView: View {
                 statusBadges
             }
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                headerActions
+                Spacer(minLength: 8)
+                DisclosureGroup(
+                    "Listener settings",
+                    isExpanded: $showingListenerSettings
+                ) {
                     listenerFields
-                    headerActions
+                        .padding(.top, 8)
                 }
-                VStack(alignment: .leading, spacing: 10) {
-                    listenerFields
-                    headerActions
-                }
+                .frame(maxWidth: 340)
             }
             Text("Endpoint preview: \(endpointPreview)")
                 .font(.caption2.monospaced())
@@ -1446,43 +1468,13 @@ struct ContentView: View {
                     color: .noctweaveWine
                 )
                 overviewSummaryCard(
-                    title: "Noctweb",
-                    value: model.effectiveNoctwebHostingEnabled ? "Hosting enabled" : "Disabled",
-                    detail: model.effectiveNoctwebHostingEnabled
-                        ? "Publisher and Lab routes advertised"
-                        : "Enable only when this relay should host sites",
-                    icon: "globe",
-                    color: model.effectiveNoctwebHostingEnabled ? .green : .secondary
+                    title: "Transport",
+                    value: model.transportSecurityMode.displayName,
+                    detail: model.communicationMode == .http ? "HTTP relay endpoint" : "Native TCP relay endpoint",
+                    icon: model.transportSecurityMode == .plainTCP ? "lock.open" : "lock.fill",
+                    color: model.transportSecurityMode == .plainTCP ? .orange : .mint
                 )
             }
-            overviewSummaryCard(
-                title: "NoctCord",
-                value: model.noctCordServiceTier,
-                detail: model.noctCordServiceDescription,
-                icon: "bubble.left.and.bubble.right.fill",
-                color: model.noctCordServicesEnabled
-                    ? (model.noctCordReadinessIssues.isEmpty ? .green : .orange)
-                    : .secondary
-            )
-
-            HStack(spacing: 10) {
-                Text("Configure")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Button("Relay Profile") { selectedPanel = .profile }
-                    .relayButton()
-                Button("Storage") { selectedPanel = .storage }
-                    .relayButton()
-                Button("NoctCord") { selectedPanel = .noctCord }
-                    .relayButton()
-                Button("Noctweb") { selectedPanel = .web }
-                    .relayButton()
-                Button("Transport") { selectedPanel = .security }
-                    .relayButton()
-                Spacer(minLength: 0)
-            }
-            .padding(14)
-            .premiumSurface(cornerRadius: 16, tintOpacity: 0.10)
         }
     }
 
@@ -1642,6 +1634,12 @@ struct ContentView: View {
                     showingDonateSheet = true
                 } label: {
                     Label("Donate", systemImage: "heart.fill")
+                }
+                Divider()
+                Button {
+                    selectedPanel = .logs
+                } label: {
+                    Label("Diagnostics", systemImage: "text.alignleft")
                 }
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
