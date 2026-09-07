@@ -1416,17 +1416,16 @@ struct ContentView: View {
                 statusBadges
             }
 
-            HStack(alignment: .center, spacing: 12) {
-                headerActions
-                Spacer(minLength: 8)
-                DisclosureGroup(
-                    "Listener settings",
-                    isExpanded: $showingListenerSettings
-                ) {
-                    listenerFields
-                        .padding(.top, 8)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    headerActions.fixedSize()
+                    Spacer(minLength: 8)
+                    listenerSettings
                 }
-                .frame(maxWidth: 340)
+                VStack(alignment: .leading, spacing: 14) {
+                    headerActions.fixedSize()
+                    listenerSettings
+                }
             }
             Text("Endpoint preview: \(endpointPreview)")
                 .font(.caption2.monospaced())
@@ -1567,6 +1566,14 @@ struct ContentView: View {
             icon: permissionSummaryIcon,
             color: permissionSummaryColor
         )
+    }
+
+    private var listenerSettings: some View {
+        DisclosureGroup("Listener settings", isExpanded: $showingListenerSettings) {
+            listenerFields
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: 340)
     }
 
     private var listenerFields: some View {
