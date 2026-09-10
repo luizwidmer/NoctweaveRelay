@@ -30,5 +30,17 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Noctweave Relay uses local network access for relay discovery, federation coordination, and inter-relay routing.</string>
+	<key>AppSupportTipProductIDs</key>
+	<array>
+		<string>com.luizwidmer.noctweaverelay.donate.small</string>
+		<string>com.luizwidmer.noctweaverelay.donate.medium</string>
+		<string>com.luizwidmer.noctweaverelay.donate.large</string>
+	</array>
+	<key>AppSupportAppleID</key>
+	<string>6809932913</string>
+	<key>AppSupportURL</key>
+	<string>https://luizwidmer.com/</string>
+	<key>AppSupportPrivacyPolicyURL</key>
+	<string>https://luizwidmer.com/noctweave-relay-privacy-policy/</string>
 </dict>
 </plist>

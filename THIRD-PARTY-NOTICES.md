@@ -9,5 +9,8 @@ license. The complete license text is included inside
 the [coturn project](https://github.com/coturn/coturn).
 
 Noctweave's managed build disables coturn database integrations, TLS/DTLS,
-OAuth, Prometheus, SCTP, and the CLI. Noctweave application-layer media
-encryption remains independent of coturn.
+OAuth, Prometheus, and SCTP; its generated configuration disables the CLI.
+Noctweave application-layer media encryption remains independent of coturn.
+The rebuild recipe is `Scripts/build-managed-coturn.sh`; its matching debug
+symbols and build record are retained in `Symbols/` for archive uploads and
+crash symbolication.

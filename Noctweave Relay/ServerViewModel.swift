@@ -559,7 +559,7 @@ private final class RelayVolatileSecretStore: @unchecked Sendable {
 }
 
 private enum RelaySecretStore {
-    enum Account: String {
+    enum Account: String, CaseIterable {
         case relayPassword = "relay-password"
         case coordinatorRegistrationToken = "coordinator-registration-token"
         case tlsIdentityPassword = "tls-identity-password"
@@ -581,7 +581,11 @@ private enum RelaySecretStore {
         #if NOCTWEAVE_XCTEST_VOLATILE_KEYCHAIN
         return true
         #else
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("NOCTWEAVE_RELAY_UI_TEST_DIRECTORY")
+        #else
         return false
+        #endif
         #endif
     }
 
@@ -911,6 +915,13 @@ final class ServerViewModel: ObservableObject {
     @Published var permissionProbeHasRun = false
     @Published var manualFederationHealth: [String: FederatedRelayHealthStatus] = [:]
 
+    @Published private(set) var isResetting = false
+    @Published private(set) var resetIsPending = false
+    var onResetCompleted: (() -> Void)?
+    private var operations: [UUID: Task<Void, Never>] = [:]
+    private var retiringRuntimes: [UUID: Task<Void, Never>] = [:]
+    private var openedStoreURLs = Set<URL>()
+    private let isolatedStorage: Bool
     private let defaultStoreURL: URL
     private let settingsURL: URL
     private let namespaceLedgerURL: URL
@@ -1178,9 +1189,33 @@ final class ServerViewModel: ObservableObject {
         return "SQLite · \(storeURL.path)"
     }
 
-    init() {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    init(storageDirectory: URL? = nil) {
+        var override = storageDirectory
+        #if NOCTWEAVE_XCTEST_VOLATILE_KEYCHAIN
+        if override == nil {
+            override = FileManager.default.temporaryDirectory.appendingPathComponent("NoctweaveRelay-XCTest-\(UUID())", isDirectory: true)
+        }
+        #endif
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if override == nil, let index = arguments.firstIndex(of: "NOCTWEAVE_RELAY_UI_TEST_DIRECTORY"),
+           arguments.indices.contains(index + 1), arguments[index + 1].hasPrefix("/") {
+            override = URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
+        }
+        #endif
+        isolatedStorage = override != nil
+        let directory = override ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NoctweaveRelay", isDirectory: true)
+        var resetFailure: Error?
+        if RelayAppReset.isPending(in: directory) {
+            do {
+                try RelayAppReset.complete(in: directory, clearSecrets: Self.purgeSecrets) {
+                    if override == nil, let domain = Bundle.main.bundleIdentifier {
+                        UserDefaults.standard.removePersistentDomain(forName: domain)
+                    }
+                }
+            } catch { resetFailure = error }
+        }
         let storeURL = directory.appendingPathComponent("relay_store.sqlite")
         self.defaultStoreURL = storeURL
         self.settingsURL = directory.appendingPathComponent("relay_settings.json")
@@ -1189,7 +1224,9 @@ final class ServerViewModel: ObservableObject {
         )
         self.storePath = storeURL.path
         self.softwareVersion = Self.makeSoftwareVersion()
+        self.resetIsPending = resetFailure != nil
         do {
+            if let resetFailure { throw resetFailure }
             self.relayIdentityKeyMaterial = try Self.loadOrCreateRelayIdentity(
                 namespaceLedgerURL: namespaceLedgerURL
             )
@@ -1210,6 +1247,11 @@ final class ServerViewModel: ObservableObject {
             configuration: bootstrapConfiguration,
             relayIdentity: relayIdentityKeyMaterial
         )
+        if resetIsPending {
+            lastError = "Reset needs to finish before the relay can reopen."
+            return
+        }
+        openedStoreURLs.insert(storeURL)
         server.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event: event)
@@ -1228,7 +1270,74 @@ final class ServerViewModel: ObservableObject {
         persistSettings()
     }
 
+    private func runOperation(_ body: @escaping @MainActor () async -> Void) {
+        guard !resetIsPending else { return }
+        let id = UUID()
+        operations[id] = Task { [weak self] in
+            defer { self?.operations[id] = nil }
+            guard self?.resetIsPending == false else { return }
+            await body()
+        }
+    }
+
+    private func retirePreviousRuntime() {
+        let previous = server
+        previous.onEvent = nil
+        let id = UUID()
+        // This drain must run even when reset cancels ordinary UI operations.
+        retiringRuntimes[id] = Task { [weak self] in
+            await previous.retireAndDrain()
+            self?.retiringRuntimes[id] = nil
+        }
+    }
+
+    private static func purgeSecrets() throws {
+        var failure: Error?
+        for account in RelaySecretStore.Account.allCases {
+            do { try RelaySecretStore.save("", account: account) } catch { failure = error }
+        }
+        if let failure { throw failure }
+    }
+
+    func purgeAndReset() async {
+        guard !isResetting else { return }
+        isResetting = true
+        defer { isResetting = false }
+        let directory = settingsURL.deletingLastPathComponent()
+        do {
+            if !RelayAppReset.isPending(in: directory) {
+                var stores = openedStoreURLs
+                stores.insert(defaultStoreURL)
+                if let url = resolvedStoreURL() { stores.insert(url) }
+                try RelayAppReset.begin(in: directory, stores: Array(stores))
+            }
+            resetIsPending = true
+            settingsCancellables.removeAll()
+            let pending = Array(operations.values)
+            pending.forEach { $0.cancel() }
+            for operation in pending { await operation.value }
+            await server.retireAndDrain()
+            for drain in Array(retiringRuntimes.values) { await drain.value }
+            try await ManagedCoturnService.shared.stopAndRemoveConfiguration()
+            isRunning = false
+            opaqueRouteSnapshotVault = nil
+            server.onEvent = nil
+            relayIdentityKeyMaterial = nil
+            try RelayAppReset.complete(in: directory, clearSecrets: Self.purgeSecrets) {
+                if !isolatedStorage, let domain = Bundle.main.bundleIdentifier {
+                    UserDefaults.standard.removePersistentDomain(forName: domain)
+                    URLCache.shared.removeAllCachedResponses()
+                }
+            }
+            logs = []
+            onResetCompleted?()
+        } catch {
+            lastError = "Reset could not finish. Retry to complete removal: \(error.localizedDescription)"
+        }
+    }
+
     func start() {
+        guard !resetIsPending else { return }
         guard secretStoreFailure == nil else {
             lastError = "Saved relay secrets could not be read from Keychain. Restart after restoring Keychain access; the relay will not start with empty credentials."
             return
@@ -1394,6 +1503,8 @@ final class ServerViewModel: ObservableObject {
         let runtimeOpaqueRouteStore = OpaqueRouteRelayStoreV2()
         opaqueRouteStore = runtimeOpaqueRouteStore
         opaqueRouteSnapshotVault = snapshotVault
+        if let resolvedStoreURL { openedStoreURLs.insert(resolvedStoreURL) }
+        retirePreviousRuntime()
         store = RelayStore(
             storeURL: resolvedStoreURL,
             temporalBucketSeconds: configuration.temporalBucketSeconds,
@@ -1420,7 +1531,7 @@ final class ServerViewModel: ObservableObject {
                 self?.handle(event: event)
             }
         }
-        Task {
+        runOperation { [self] in
             do {
                 if let managedCoturnConfiguration {
                     try await ManagedCoturnService.shared.start(
@@ -1457,7 +1568,8 @@ final class ServerViewModel: ObservableObject {
     func stop() {
         let stoppingServer = server
         let snapshotVault = opaqueRouteSnapshotVault
-        Task {
+        runOperation { [self] in
+            await stoppingServer.retireAndDrain()
             do {
                 if let snapshotVault {
                     try await snapshotVault.save(try await stoppingServer.opaqueRouteStateSnapshot())
@@ -1473,7 +1585,6 @@ final class ServerViewModel: ObservableObject {
                     fallback: "Opaque-route state could not be saved."
                 )
             }
-            stoppingServer.stop()
             ManagedCoturnService.shared.stop()
             isRunning = false
         }
@@ -1666,7 +1777,7 @@ final class ServerViewModel: ObservableObject {
         }
         namespacePropagationStatus =
             "Propagating namespace update to \(endpoints.count) peer(s)…"
-        Task {
+        runOperation { [self] in
             var accepted = 0
             for endpoint in endpoints {
                 do {
@@ -1693,7 +1804,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func fetchFederationSource() {
-        Task {
+        runOperation { [self] in
             await loadFederationSource()
         }
     }
@@ -1704,7 +1815,7 @@ final class ServerViewModel: ObservableObject {
         localNetworkPermissionStatus = .requesting
         incomingConnectionPermissionStatus = .requesting
         permissionProbeMessage = "Requesting local network and incoming listener permissions..."
-        Task {
+        runOperation { [self] in
             let localResult = await Self.probeLocalNetworkPermission()
             let incomingResult = await Self.probeIncomingConnectionPermission()
             await MainActor.run {
@@ -1719,6 +1830,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func handle(event: RelayServer.Event) {
+        guard !resetIsPending else { return }
         switch event {
         case .started(let port):
             appendLog("Server started on \(host):\(port)")
@@ -2237,7 +2349,7 @@ final class ServerViewModel: ObservableObject {
             return
         }
         manualFederationHealth[trimmed] = .checking
-        Task {
+        runOperation { [self] in
             let started = Date()
             do {
                 let response = try await RelayClient(endpoint: endpoint)
@@ -2743,6 +2855,9 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func rebuildRuntimeWithCurrentSettings() {
+        guard !resetIsPending else { return }
+        if let url = resolvedStoreURL() { openedStoreURLs.insert(url) }
+        retirePreviousRuntime()
         let configuration = buildConfiguration()
         store = RelayStore(
             storeURL: resolvedStoreURL(),
@@ -3254,6 +3369,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     private func persistSettings() {
+        guard !resetIsPending else { return }
         guard secretStoreFailure == nil else {
             return
         }

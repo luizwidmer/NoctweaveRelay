@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 #if canImport(AppKit)
 import AppKit
 
@@ -19,6 +20,8 @@ private final class RelayAppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 struct NoctweaveRelayApp: App {
+    @StateObject private var support = AppSupportStore.shared
+
 #if canImport(AppKit)
     @NSApplicationDelegateAdaptor(RelayAppDelegate.self) private var appDelegate
 #endif
@@ -28,11 +31,27 @@ struct NoctweaveRelayApp: App {
         NoctweaveAppearanceMode(rawValue: appearanceRaw) ?? .system
     }
 
+    @StateObject private var session = RelayApplicationSession()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(model: session.model)
+                .id(ObjectIdentifier(session.model))
                 .tint(.noctweaveCoral)
                 .preferredColorScheme(appearance.preferredColorScheme)
+        }
+    }
+}
+
+@MainActor
+private final class RelayApplicationSession: ObservableObject {
+    @Published private(set) var model = ServerViewModel()
+    init() { connectReset() }
+    private func connectReset() {
+        model.onResetCompleted = { [weak self] in
+            guard let self else { return }
+            self.model = ServerViewModel()
+            self.connectReset()
         }
     }
 }

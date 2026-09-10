@@ -1,10 +1,11 @@
 import SwiftUI
 import NoctweaveCore
-import StoreKit
 import Combine
 
 struct ContentView: View {
-    @StateObject private var model = ServerViewModel()
+    @ObservedObject var model: ServerViewModel
+    @State private var showingReset = false
+    @State private var resetConfirmation = ""
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("noctweave.server.acceptedPrivacyPolicy.v1") private var acceptedPrivacyPolicy = false
     @AppStorage("noctweave.server.acceptedTermsOfUse.v1") private var acceptedTermsOfUse = false
@@ -112,6 +113,17 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            if model.resetIsPending {
+                VStack(spacing: 18) {
+                    Text("Finish resetting Noctweave Relay").font(.title2)
+                    if model.isResetting { ProgressView("Stopping services and removing local data…") }
+                    else {
+                        Text(model.lastError ?? "Reset needs to finish before you can continue.")
+                            .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button("Retry Reset", role: .destructive) { Task { await model.purgeAndReset() } }
+                    }
+                }.padding(40).frame(maxWidth: 600)
+            } else {
             mainContent
                 .blur(radius: requiresLegalAcceptance || requiresPermissionPreflight ? 1.5 : 0)
                 .disabled(requiresLegalAcceptance || requiresPermissionPreflight)
@@ -140,6 +152,16 @@ struct ContentView: View {
                     }
                 )
             }
+            }
+        }
+        .alert("Purge and reset Noctweave Relay?", isPresented: $showingReset) {
+            TextField("Type RESET to confirm", text: $resetConfirmation)
+            Button("Cancel", role: .cancel) {}
+            Button("Purge and Reset", role: .destructive) {
+                Task { await model.purgeAndReset() }
+            }.disabled(resetConfirmation != "RESET")
+        } message: {
+            Text("Stop this relay and permanently remove its local databases, hosted content, signing keys, credentials, and settings, including the configured external database. Files exported elsewhere and data offloaded to IPFS remain. This cannot be undone. Type RESET to continue.")
         }
         .onAppear {
             pendingPrivacyAcceptance = acceptedPrivacyPolicy
@@ -1241,7 +1263,7 @@ struct ContentView: View {
             ServerLegalDocumentView()
         }
         .sheet(isPresented: $showingDonateSheet) {
-            RelayDonationSheetView()
+            RelaySupportSheetView()
         }
         .sheet(isPresented: $showingSetupGuide, onDismiss: {
             hasSeenSetupGuide = true
@@ -1370,6 +1392,12 @@ struct ContentView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .accessibilityIdentifier("relay.appearance")
+
+                Button("Reset App…", systemImage: "trash", role: .destructive) {
+                    resetConfirmation = ""; showingReset = true
+                }.accessibilityIdentifier("app.purgeAndReset")
+                    .accessibilityLabel("Purge and Reset App…")
+                    .font(.caption).disabled(model.isResetting)
 
                 Divider()
 
@@ -1640,7 +1668,7 @@ struct ContentView: View {
                 Button {
                     showingDonateSheet = true
                 } label: {
-                    Label("Donate", systemImage: "heart.fill")
+                    Label("About & Support", systemImage: "info.circle")
                 }
                 Divider()
                 Button {
@@ -2705,194 +2733,24 @@ private struct ServerLegalDocumentView: View {
     }
 }
 
-private let relayDonationProductIDs: [String] = [
-    "com.luizwidmer.noctweaverelay.donate.small",
-    "com.luizwidmer.noctweaverelay.donate.medium",
-    "com.luizwidmer.noctweaverelay.donate.large"
-]
-
-@MainActor
-private final class RelayDonationStore: ObservableObject {
-    @Published var products: [Product] = []
-    @Published var isLoading = false
-    @Published var statusMessage: String?
-
-    func loadProducts() async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            let loaded = try await Product.products(for: relayDonationProductIDs)
-            products = loaded.sorted { $0.price < $1.price }
-            if loaded.isEmpty {
-                statusMessage = "No donation products were found. Add the product IDs in App Store Connect or a StoreKit config file."
-            } else {
-                statusMessage = nil
-            }
-        } catch {
-            statusMessage = "Unable to load donation products: \(safeStoreKitErrorDescription(error, fallback: "Donation products could not be loaded."))"
-        }
-    }
-
-    func donate(_ product: Product) async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            let result = try await product.purchase()
-            switch result {
-            case .success(let verification):
-                switch verification {
-                case .verified(let transaction):
-                    await transaction.finish()
-                    statusMessage = "Thanks for supporting Noctweave Relay."
-                case .unverified(_, let error):
-                    statusMessage = "Purchase could not be verified: \(safeStoreKitErrorDescription(error, fallback: "Purchase verification failed."))"
-                }
-            case .pending:
-                statusMessage = "Purchase is pending approval."
-            case .userCancelled:
-                statusMessage = "Purchase cancelled."
-            @unknown default:
-                statusMessage = "Purchase failed. Try again."
-            }
-        } catch {
-            statusMessage = "Purchase failed: \(safeStoreKitErrorDescription(error, fallback: "Purchase could not be completed."))"
-        }
-    }
-
-    private func safeStoreKitErrorDescription(_ error: Error, fallback: String) -> String {
-        if let storeError = error as? StoreKitError {
-            switch storeError {
-            case .networkError:
-                return "Store network connection failed."
-            case .notAvailableInStorefront:
-                return "Donations are not available in this storefront."
-            case .notEntitled:
-                return "This Apple account is not allowed to complete the purchase."
-            case .systemError:
-                return "Store purchase service failed."
-            case .unsupported:
-                return "Store purchases are not supported on this device."
-            case .userCancelled:
-                return "Purchase cancelled."
-            case .unknown:
-                return fallback
-            @unknown default:
-                return fallback
-            }
-        }
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain {
-            return "Store network connection failed."
-        }
-        return fallback
-    }
-}
-
-private struct RelayDonationSheetView: View {
+private struct RelaySupportSheetView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var store = RelayDonationStore()
-
     var body: some View {
-        ZStack {
-            PremiumRelayBackground()
-            VStack(spacing: 0) {
-                RelaySheetTopBar(onClose: { dismiss() }) {
-                    Button {
-                        Task { await store.loadProducts() }
-                    } label: {
-                        Label("Reload", systemImage: "arrow.clockwise")
-                    }
-                    .relayButton()
-                    .disabled(store.isLoading)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-
-                    ScrollView {
-                    VStack(spacing: 14) {
-                        RelaySheetHero(
-                            icon: "heart.fill",
-                            title: "Support Noctweave Relay",
-                            subtitle: "Fund continued relay maintenance and security work."
-                        )
-
-                        RelaySheetSection(title: "Donation Options", icon: "giftcard.fill") {
-                            if store.isLoading && store.products.isEmpty {
-                                HStack(spacing: 10) {
-                                    ProgressView()
-                                    Text("Loading donation options…")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 18)
-                            } else if store.products.isEmpty {
-                                VStack(spacing: 7) {
-                                    Image(systemName: "shippingbox")
-                                        .font(.system(size: 25))
-                                        .foregroundStyle(.secondary)
-                                    Text("No options available")
-                                        .font(.subheadline.weight(.semibold))
-                                    Text("Donation products are not currently available from the App Store.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.center)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                            } else {
-                                LazyVStack(spacing: 10) {
-                                    ForEach(store.products, id: \.id) { product in
-                                        Button {
-                                            Task { await store.donate(product) }
-                                        } label: {
-                                            HStack(spacing: 12) {
-                                                VStack(alignment: .leading, spacing: 3) {
-                                                    Text(product.displayName)
-                                                        .font(.subheadline.weight(.semibold))
-                                                    Text(product.description)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                        .lineLimit(2)
-                                                }
-                                                Spacer()
-                                                Text(product.displayPrice)
-                                                    .font(.subheadline.weight(.semibold))
-                                        }
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                        .padding(12)
-                                        .premiumSurface(cornerRadius: 13, tintOpacity: 0.08)
-                                        .disabled(store.isLoading)
-                                    }
-                                }
-                            }
-                        }
-
-                if let status = store.statusMessage {
-                            Label(status, systemImage: "info.circle")
-                        .font(.caption)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Noctweave Relay").font(.title2.bold())
+                    Text("Local relay operation for the Noctweave network.")
                         .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(12)
-                                .premiumSurface(cornerRadius: 13, tintOpacity: 0.08)
-                        }
-                    }
-                    .frame(maxWidth: 700)
-                    .padding(16)
-                    .frame(maxWidth: .infinity)
-                }
+                    AppSupportCard()
+                }.padding(24)
             }
-        }
-        .frame(minWidth: 520, minHeight: 420)
-        .task {
-            await store.loadProducts()
-        }
+            .navigationTitle("About & Support")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }.frame(minWidth: 560, minHeight: 360)
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(model: ServerViewModel())
 }

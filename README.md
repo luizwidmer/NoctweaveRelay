@@ -84,6 +84,41 @@ It uses ad-hoc local signing, a fresh test-only bundle identifier, and
 process-local XCTest secrets, so it neither claims the production sandbox nor
 unlocks a developer signing certificate or touches production Keychain records.
 
+### Archive symbols for Managed coturn
+
+The prebuilt `ManagedCoturn.bundle` and
+`Symbols/ManagedCoturn.bundle.dSYM` are a matching pair. The **Include Managed
+coturn symbols** build phase checks their UUIDs and source debug information,
+then copies the dSYM to Xcode's symbol output directory. An archive must contain
+both `Noctweave Relay.app.dSYM` and `ManagedCoturn.bundle.dSYM` in `dSYMs`.
+The helper symbols stay outside the app bundle.
+
+To rebuild coturn, install the OpenSSL 3 and libevent development libraries
+(for example, `brew install openssl@3 libevent pkgconf`) and run:
+
+```sh
+Scripts/build-managed-coturn.sh
+```
+
+The script verifies the pinned coturn source checksum, builds the minimal arm64
+helper with debug information, retains the dSYM before stripping, and signs the
+helper locally with its sandbox inheritance entitlements. Xcode signs the helper
+again when embedding it. `OPENSSL_PREFIX` and `LIBEVENT_PREFIX` can select other
+installed dependency prefixes; `COTURN_SOURCE_ARCHIVE` can supply a previously
+downloaded source tarball, which is checked against the same checksum.
+`Symbols/ManagedCoturn-build.txt` records the toolchain, dependencies, and UUID.
+Keep the regenerated helper, signature, dSYM, and build record together.
+
+After replacing a helper that lacked symbols, create a new archive. A dSYM from
+the rebuilt helper cannot repair an older archive with a different helper UUID.
+Check a new archive with:
+
+```sh
+xcrun dwarfdump --uuid \
+  "$ARCHIVE_PATH/Products/Applications/Noctweave Relay.app/Contents/Helpers/ManagedCoturn.bundle/Contents/MacOS/turnserver" \
+  "$ARCHIVE_PATH/dSYMs/ManagedCoturn.bundle.dSYM"
+```
+
 See [RELAY_OPERATIONS.md](RELAY_OPERATIONS.md) for configuration and operating details.
 
 ## App identity migration

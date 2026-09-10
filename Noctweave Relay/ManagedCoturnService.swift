@@ -334,6 +334,27 @@ final class ManagedCoturnService: ObservableObject {
         }
     }
 
+    func stopAndRemoveConfiguration() async throws {
+        let running = process
+        stop()
+        if let running {
+            for _ in 0..<100 where running.isRunning {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            guard !running.isRunning else {
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "The call traversal process has not stopped yet."])
+            }
+        }
+        activeSecret = ""
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("NoctweaveRelay")
+            .appendingPathComponent("ManagedCoturn")
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try RelaySecureFileIO.ensurePrivateDirectory(at: directory)
+            try FileManager.default.removeItem(at: directory)
+        }
+        state = .stopped
+    }
+
     private func writePrivateConfiguration(
         _ configuration: ManagedCoturnConfiguration
     ) throws -> URL {
