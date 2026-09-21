@@ -1,6 +1,70 @@
-# Noctweave Relay
+<p align="center">
+  <img src="BrandAssets/NoctweaveRelayAppIcon.svg" alt="Noctweave Relay icon" width="112">
+</p>
 
-Noctweave Relay is the native macOS operator app for running and configuring a self-hosted Noctweave relay. It uses the sibling `NoctweaveCore` Swift package and provides a graphical control surface for relay networking, storage, access policy, retention, federation, and application-neutral realtime services.
+<a id="noctweave-relay"></a>
+
+<h1 align="center">Noctweave Relay</h1>
+
+<p align="center"><strong>Run your relay from a native Mac control panel.</strong></p>
+
+<p align="center">
+  <a href="#overview">Overview</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#security-and-privacy">Security</a> ·
+  <a href="#documentation">Documentation</a>
+</p>
+
+## Overview
+
+Noctweave Relay manages a self-hosted relay on your Mac. Configure networking,
+storage, access, federation, and realtime services in SwiftUI while clients
+retain control of message and attachment encryption.
+
+| Detail | At a glance |
+| --- | --- |
+| Platform | macOS |
+| Built with | SwiftUI · NoctweaveCore · optional coturn |
+| License | [AGPL-3.0-or-later](LICENSE) |
+
+<a id="requirements"></a>
+
+<a id="build"></a>
+
+## Quick start
+
+Run commands from this repository. The Xcode project expects
+`NoctweaveCore` in the parent checkout.
+
+- Xcode 26 or later
+- macOS 26 SDK
+- `NoctweaveCore` checked out as a sibling directory at `../NoctweaveCore`
+
+Open `Noctweave Relay.xcodeproj` in Xcode, or build from the command line:
+
+```sh
+xcodebuild \
+  -project "Noctweave Relay.xcodeproj" \
+  -scheme "Noctweave Relay" \
+  -destination 'platform=macOS' \
+  build
+```
+
+<a id="what-it-includes"></a>
+
+## Features
+
+- Local relay start, stop, status, and runtime diagnostics
+- Disk-backed or ephemeral in-memory storage
+- TCP and HTTP endpoint configuration, with native TLS or TLS reverse-proxy support
+- Password-based relay access control
+- Optional bounded one-use rendezvous for Relay Pairing
+- Default-off same-relay pairing discovery with two-minute process-local listings
+- Attachment retention and temporal-bucketing controls
+- Configurable NoctCord realtime routes, durable shared logs, presence, and media blobs
+- Explicit `solo`, `manual`, `curated`, and `open` federation modes
+- Coordinator and relay-directory configuration
 
 ## NoctCord community services
 
@@ -33,7 +97,7 @@ range to the Mac. Ordinary HTTP reverse proxies cannot carry TURN. Operators
 who already run coturn can select **External** under **Advanced call settings**.
 The credential key remains in Keychain and is never included in relay info. See
 the public
-[`coturn_call_traversal.md`](../NoctweaveDocumentation/coturn_call_traversal.md)
+[`coturn_call_traversal.md`](https://github.com/luizwidmer/Noctweave/blob/main/NoctweaveDocumentation/coturn_call_traversal.md)
 guide for network examples and threat boundaries.
 
 The generated coturn configuration is transient and removed after startup. A
@@ -42,18 +106,7 @@ available; this expires old temporary call credentials without changing relay
 identity or stored data. External deployments must restore the same secret on
 both coturn and the relay.
 
-## What it includes
-
-- Local relay start, stop, status, and runtime diagnostics
-- Disk-backed or ephemeral in-memory storage
-- TCP and HTTP endpoint configuration, with native TLS or TLS reverse-proxy support
-- Password-based relay access control
-- Optional bounded one-use rendezvous for Relay Pairing
-- Default-off same-relay pairing discovery with two-minute process-local listings
-- Attachment retention and temporal-bucketing controls
-- Configurable NoctCord realtime routes, durable shared logs, presence, and media blobs
-- Explicit `solo`, `manual`, `curated`, and `open` federation modes
-- Coordinator and relay-directory configuration
+## Security and privacy
 
 The macOS relay serves native TCP frames or HTTP (`POST /relay`, `GET /health`, and
 `GET /info`). It does not implement a WebSocket listener; use the sibling Linux
@@ -61,30 +114,17 @@ relay for WebSocket/WSS endpoints.
 
 This repository is an operator application, not a hosted relay service. Messages and attachments must be encrypted by clients before submission. Relays store and route ciphertext and must not be treated as trusted plaintext processors.
 
-## Requirements
+## Development
 
-- Xcode 26 or later
-- macOS 26 SDK
-- `NoctweaveCore` checked out as a sibling directory at `../NoctweaveCore`
-
-## Build
-
-Open `Noctweave Relay.xcodeproj` in Xcode, or build from the command line:
-
-```sh
-xcodebuild \
-  -project "Noctweave Relay.xcodeproj" \
-  -scheme "Noctweave Relay" \
-  -destination 'platform=macOS' \
-  build
-```
-
-For tests, use the root-level `scripts/run-native-app-tests.sh relay` command.
+For tests, use the root-level `../scripts/run-native-app-tests.sh relay` command.
 It uses ad-hoc local signing, a fresh test-only bundle identifier, and
 process-local XCTest secrets, so it neither claims the production sandbox nor
 unlocks a developer signing certificate or touches production Keychain records.
 
+
+
 ### Archive symbols for Managed coturn
+
 
 The prebuilt `ManagedCoturn.bundle` and
 `Symbols/ManagedCoturn.bundle.dSYM` are a matching pair. The **Include Managed
@@ -124,6 +164,15 @@ See [RELAY_OPERATIONS.md](RELAY_OPERATIONS.md) for configuration and operating d
 ## App identity migration
 
 This project replaces the former Noctyra product identity. Its product name, scheme, bundle identifier, source symbols, and local persistence labels now use Noctweave. Existing Noctyra installations and their local data are not migrated automatically.
+
+## Documentation
+
+| Read | For |
+| --- | --- |
+| [Relay operations](RELAY_OPERATIONS.md) | Configuration and everyday operation |
+| [Third-party notices](THIRD-PARTY-NOTICES.md) | Bundled dependencies and licenses |
+| [Linux / Docker relay](https://github.com/luizwidmer/Noctweave/blob/main/NoctweaveRelayServer/README.md) | Server deployment and WebSocket support |
+| [Operator hardening](https://github.com/luizwidmer/Noctweave/blob/main/NoctweaveDocumentation/relay_ops_hardening_guide.md) | Transport, secrets, and deployment boundaries |
 
 ## License
 
