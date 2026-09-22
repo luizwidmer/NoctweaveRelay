@@ -108,6 +108,8 @@ both coturn and the relay.
 
 ## Security and privacy
 
+Managed TURN permits public peer destinations and blocks loopback, private, link-local, and other special address ranges. It does not provide access to the relay operator’s LAN. Private-network TURN deployments must use an independently configured external service.
+
 The macOS relay serves native TCP frames or HTTP (`POST /relay`, `GET /health`, and
 `GET /info`). It does not implement a WebSocket listener; use the sibling Linux
 relay for WebSocket/WSS endpoints.

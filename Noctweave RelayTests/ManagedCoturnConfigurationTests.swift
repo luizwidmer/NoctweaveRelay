@@ -44,6 +44,21 @@ final class ManagedCoturnConfigurationTests: XCTestCase {
         XCTAssertTrue(text.contains("no-dtls"))
     }
 
+    func testManagedConfigurationRejectsPrivatePeerDestinations() throws {
+        let configuration = try ManagedCoturnConfiguration(
+            advertisedHost: "calls.example.org", realm: "noctweave", sharedSecret: secret
+        )
+        let directives = Set(configuration.configurationText.split(separator: "\n").map(String.init))
+        for range in ["10.0.0.0-10.255.255.255", "172.16.0.0-172.31.255.255",
+                      "192.168.0.0-192.168.255.255", "100.64.0.0-100.127.255.255",
+                      "169.254.0.0-169.254.255.255", "127.0.0.0-127.255.255.255",
+                      "fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+                      "fe80::-feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"] {
+            XCTAssertTrue(directives.contains("denied-peer-ip=\(range)"), range)
+        }
+        XCTAssertFalse(directives.contains(where: { $0.hasPrefix("allowed-peer-ip=") }))
+    }
+
     func testConfigurationRejectsInjectionAndMalformedHosts() {
         XCTAssertThrowsError(
             try ManagedCoturnConfiguration(

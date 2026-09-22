@@ -135,11 +135,30 @@ struct ManagedCoturnConfiguration: Equatable {
             "log-file=stdout",
             "simple-log"
         ]
+        // TURN credentials authorize public call transport, not access to the
+        // operator's LAN or services reachable only from the relay machine.
+        lines.append(contentsOf: Self.deniedPeerIPRanges.map { "denied-peer-ip=\($0)" })
         if let externalIPAddress {
             lines.append("external-ip=\(externalIPAddress)")
         }
         return lines.joined(separator: "\n") + "\n"
     }
+
+    static let deniedPeerIPRanges = [
+        "0.0.0.0-0.255.255.255",
+        "10.0.0.0-10.255.255.255",
+        "100.64.0.0-100.127.255.255",
+        "127.0.0.0-127.255.255.255",
+        "169.254.0.0-169.254.255.255",
+        "172.16.0.0-172.31.255.255",
+        "192.0.0.0-192.0.0.255",
+        "192.168.0.0-192.168.255.255",
+        "198.18.0.0-198.19.255.255",
+        "224.0.0.0-255.255.255.255",
+        "fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "fe80::-feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "ff00::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
+    ]
 
     static func isValidAdvertisedHost(_ value: String) -> Bool {
         guard isSafeSingleLine(value, maximumUTF8Bytes: 255),
