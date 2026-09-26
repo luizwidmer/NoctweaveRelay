@@ -316,10 +316,18 @@ final class ManagedCoturnService: ObservableObject {
             self.process = process
             try await Task.sleep(for: .milliseconds(350))
             guard process.isRunning else {
+                let launchDetail: String
+                if !recentLog.isEmpty {
+                    launchDetail = recentLog.split(separator: "\n").last.map(String.init)
+                        ?? "Managed coturn failed."
+                } else if process.terminationReason == .uncaughtSignal,
+                          process.terminationStatus == SIGTRAP {
+                    launchDetail = "Managed coturn was rejected before startup. Check that the relay app and bundled helper are signed with compatible sandbox entitlements."
+                } else {
+                    launchDetail = "Managed coturn exited before startup. Check its code signing and network ports."
+                }
                 throw ManagedCoturnError.launchFailed(
-                    recentLog.isEmpty
-                        ? "Managed coturn could not open its network ports."
-                        : recentLog.split(separator: "\n").last.map(String.init) ?? "Managed coturn failed."
+                    launchDetail
                 )
             }
             Self.removePrivateConfiguration(at: configurationURL)

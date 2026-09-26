@@ -122,6 +122,8 @@ final class ManagedCoturnConfigurationTests: XCTestCase {
 
     @MainActor
     func testBundledManagedServiceCanLaunch() async throws {
+        // This helper has sandbox-inheritance entitlements. Run this test with
+        // normal app signing; an unsigned test host traps before coturn runs.
         let service = ManagedCoturnService.shared
         service.stop()
         let configuration = try ManagedCoturnConfiguration(
@@ -136,6 +138,7 @@ final class ManagedCoturnConfigurationTests: XCTestCase {
         try await service.start(configuration: configuration)
         defer { service.stop() }
 
+        try await Task.sleep(for: .seconds(10))
         XCTAssertTrue(service.state.isRunning)
         let transientRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("NoctweaveRelay/ManagedCoturn", isDirectory: true)

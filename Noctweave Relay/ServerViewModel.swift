@@ -537,7 +537,7 @@ private final class PermissionProbeGate: @unchecked Sendable {
 }
 
 #if canImport(Security)
-private final class RelayVolatileSecretStore: @unchecked Sendable {
+nonisolated private final class RelayVolatileSecretStore: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: String] = [:]
 
@@ -558,7 +558,7 @@ private final class RelayVolatileSecretStore: @unchecked Sendable {
     }
 }
 
-private enum RelaySecretStore {
+nonisolated enum RelaySecretStore {
     enum Account: String, CaseIterable {
         case relayPassword = "relay-password"
         case coordinatorRegistrationToken = "coordinator-registration-token"
@@ -569,6 +569,8 @@ private enum RelaySecretStore {
         case pendingRelayIdentityKey = "relay-identity-key-pending-v1"
         case noctwebHostSigningKey = "noctweb-host-signing-key-v1"
         case turnSharedSecret = "turn-shared-secret-v1"
+        case encryptedLocalFilesKey = "encrypted-local-files-key-v1"
+        case uiPreferences = "ui-preferences-v1"
     }
 
     private static let service = "com.noctweave.relay.configuration"
@@ -602,8 +604,11 @@ private enum RelaySecretStore {
             return nil
         }
         guard status == errSecSuccess,
-              let data = item as? Data,
-              let value = String(data: data, encoding: .utf8) else {
+              var data = item as? Data else {
+            throw RelaySecretStoreError.keychain(status)
+        }
+        defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+        guard let value = String(data: data, encoding: .utf8) else {
             throw RelaySecretStoreError.keychain(status)
         }
         return value
@@ -629,7 +634,8 @@ private enum RelaySecretStore {
             return
         }
 
-        let data = Data(value.utf8)
+        var data = Data(value.utf8)
+        defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
@@ -643,6 +649,7 @@ private enum RelaySecretStore {
 
         var attributes = baseQuery
         attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let addStatus = SecItemAdd(attributes as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw RelaySecretStoreError.keychain(addStatus)
@@ -677,7 +684,7 @@ private enum RelaySecretStoreError: LocalizedError {
     }
 }
 #else
-private enum RelaySecretStore {
+nonisolated enum RelaySecretStore {
     enum Account {
         case relayPassword
         case coordinatorRegistrationToken
@@ -687,6 +694,8 @@ private enum RelaySecretStore {
         case relayIdentityKey
         case pendingRelayIdentityKey
         case noctwebHostSigningKey
+        case encryptedLocalFilesKey
+        case uiPreferences
     }
 
     static func load(account: Account) throws -> String? { nil }
@@ -747,6 +756,110 @@ actor RelayOpaqueRouteSnapshotVault {
             to: fileURL,
             maximumBytes: Self.maximumStoredBytes
         )
+    }
+}
+
+nonisolated enum RelayEncryptedLocalFile {
+    static let settingsDomain = "noctweave.relay.settings.v1\u{0}"
+    static let namespaceDomain = "noctweave.relay.namespace-ledger.v1\u{0}"
+    private static let marker = Data("NWRF1".utf8)
+    private static let fileLock = NSLock()
+    private static let keyLock = NSLock()
+    private static let maximumOverhead = 64
+
+    static func read(
+        from url: URL,
+        maximumPlaintextBytes: Int,
+        domain: String
+    ) throws -> Data {
+        let stored = try RelaySecureFileIO.read(
+            from: url,
+            maximumBytes: maximumPlaintextBytes + maximumOverhead
+        )
+        let key = try encryptionKey(createIfMissing: false)
+        let plaintext = try open(stored, using: key, domain: domain)
+        guard plaintext.count <= maximumPlaintextBytes else {
+            throw CocoaError(.fileReadTooLarge)
+        }
+        return plaintext
+    }
+
+    static func write(
+        _ plaintext: Data,
+        to url: URL,
+        maximumPlaintextBytes: Int,
+        domain: String
+    ) throws {
+        guard plaintext.count <= maximumPlaintextBytes else {
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
+        fileLock.lock()
+        defer { fileLock.unlock() }
+        // Never replace an older plaintext file or an encrypted file whose
+        // Keychain key has been lost. An explicit reset handles either case.
+        if FileManager.default.fileExists(atPath: url.path) {
+            var prior = try read(
+                from: url,
+                maximumPlaintextBytes: maximumPlaintextBytes,
+                domain: domain
+            )
+            prior.resetBytes(in: prior.startIndex..<prior.endIndex)
+        }
+        let key = try encryptionKey(createIfMissing: true)
+        let stored = try seal(plaintext, using: key, domain: domain)
+        try RelaySecureFileIO.writePrivate(
+            stored,
+            to: url,
+            maximumBytes: maximumPlaintextBytes + maximumOverhead
+        )
+    }
+
+    static func seal(_ plaintext: Data, using key: SymmetricKey, domain: String) throws -> Data {
+        let box = try AES.GCM.seal(
+            plaintext, using: key, authenticating: Data(domain.utf8)
+        )
+        guard let combined = box.combined else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        var stored = marker
+        stored.append(combined)
+        return stored
+    }
+
+    static func open(_ stored: Data, using key: SymmetricKey, domain: String) throws -> Data {
+        guard stored.count >= marker.count + 28,
+              stored.starts(with: marker),
+              let box = try? AES.GCM.SealedBox(combined: stored.dropFirst(marker.count)) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        do {
+            return try AES.GCM.open(box, using: key, authenticating: Data(domain.utf8))
+        } catch {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    private static func encryptionKey(createIfMissing: Bool) throws -> SymmetricKey {
+        keyLock.lock()
+        defer { keyLock.unlock() }
+        if let encoded = try RelaySecretStore.load(account: .encryptedLocalFilesKey) {
+            guard var data = Data(base64Encoded: encoded), data.count == 32 else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+            return SymmetricKey(data: data)
+        }
+        guard createIfMissing else {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        let key = SymmetricKey(size: .bits256)
+        var raw = key.withUnsafeBytes { Data($0) }
+        defer { raw.resetBytes(in: raw.startIndex..<raw.endIndex) }
+        try RelaySecretStore.save(
+            raw.base64EncodedString(),
+            account: .encryptedLocalFilesKey
+        )
+        return key
     }
 }
 
@@ -1339,7 +1452,7 @@ final class ServerViewModel: ObservableObject {
     func start() {
         guard !resetIsPending else { return }
         guard secretStoreFailure == nil else {
-            lastError = "Saved relay secrets could not be read from Keychain. Restart after restoring Keychain access; the relay will not start with empty credentials."
+            lastError = secretStoreFailure
             return
         }
         guard let portValue = UInt16(port) else {
@@ -2695,6 +2808,7 @@ final class ServerViewModel: ObservableObject {
             }
         } catch {
             claimedNoctwebSuffix = nil
+            secretStoreFailure = "Protected Noctweb namespace state could not be decrypted."
             appendRedactedLog(
                 "Failed to inspect Noctweb namespace state",
                 error: error,
@@ -3034,29 +3148,33 @@ final class ServerViewModel: ObservableObject {
             version: NoctwebNamespaceConsensusV1.version,
             records: records
         )
-        let data = try NoctweaveCoder.encode(
+        var data = try NoctweaveCoder.encode(
             envelope,
             sortedKeys: true
         )
-        try RelaySecureFileIO.writePrivate(
+        defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+        try RelayEncryptedLocalFile.write(
             data,
             to: url,
-            maximumBytes: 8_000_000
+            maximumPlaintextBytes: 8_000_000,
+            domain: RelayEncryptedLocalFile.namespaceDomain
         )
     }
 
     nonisolated private static func loadNamespaceRecords(
         from url: URL
     ) throws -> [NoctwebNamespaceRecordV1]? {
-        let data: Data
+        var data: Data
         do {
-            data = try RelaySecureFileIO.read(
+            data = try RelayEncryptedLocalFile.read(
                 from: url,
-                maximumBytes: 8_000_000
+                maximumPlaintextBytes: 8_000_000,
+                domain: RelayEncryptedLocalFile.namespaceDomain
             )
         } catch RelaySecureFileIOError.notFound {
             return nil
         }
+        defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
         let envelope = try NoctweaveCoder.decode(
             PersistedNoctwebNamespaceLedger.self,
             from: data
@@ -3379,15 +3497,17 @@ final class ServerViewModel: ObservableObject {
             try RelaySecretStore.save(coordinatorRegistrationToken, account: .coordinatorRegistrationToken)
             try RelaySecretStore.save(tlsIdentityPassword, account: .tlsIdentityPassword)
             try RelaySecretStore.save(turnSharedSecret, account: .turnSharedSecret)
-            let data = try JSONEncoder().encode(settings)
-            try RelaySecureFileIO.writePrivate(
+            var data = try JSONEncoder().encode(settings)
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
+            try RelayEncryptedLocalFile.write(
                 data,
                 to: settingsURL,
-                maximumBytes: 1_048_576
+                maximumPlaintextBytes: 1_048_576,
+                domain: RelayEncryptedLocalFile.settingsDomain
             )
             secretStoreFailure = nil
         } catch {
-            // Keep runtime functional even if settings cannot be written.
+            secretStoreFailure = "Protected relay settings could not be saved. Restore Keychain or storage access before starting."
             logs.append("Settings persistence failed: \(redactedRelayAppError(error, fallback: "Settings could not be written."))")
             if logs.count > 200 {
                 logs.removeFirst(logs.count - 200)
@@ -3397,10 +3517,12 @@ final class ServerViewModel: ObservableObject {
 
     private func loadPersistedSettingsIfAvailable() {
         do {
-            let data = try RelaySecureFileIO.read(
+            var data = try RelayEncryptedLocalFile.read(
                 from: settingsURL,
-                maximumBytes: 1_048_576
+                maximumPlaintextBytes: 1_048_576,
+                domain: RelayEncryptedLocalFile.settingsDomain
             )
+            defer { data.resetBytes(in: data.startIndex..<data.endIndex) }
             let persisted = try JSONDecoder().decode(PersistedSettings.self, from: data)
             isApplyingPersistedSettings = true
             host = persisted.host
@@ -3508,6 +3630,7 @@ final class ServerViewModel: ObservableObject {
             return
         } catch {
             isApplyingPersistedSettings = false
+            secretStoreFailure = "Saved relay settings could not be decrypted. The relay will not start until the protected data is restored or reset."
             logs.append("Failed to load persisted settings: \(redactedRelayAppError(error, fallback: "Settings could not be loaded."))")
             if logs.count > 200 {
                 logs.removeFirst(logs.count - 200)

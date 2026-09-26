@@ -7,11 +7,7 @@ struct ContentView: View {
     @State private var showingReset = false
     @State private var resetConfirmation = ""
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("noctweave.server.acceptedPrivacyPolicy.v1") private var acceptedPrivacyPolicy = false
-    @AppStorage("noctweave.server.acceptedTermsOfUse.v1") private var acceptedTermsOfUse = false
-    @AppStorage("noctweave.server.permissions.preflight.v1") private var completedPermissionPreflight = false
-    @AppStorage("noctweave.server.setupGuide.seen.v1") private var hasSeenSetupGuide = false
-    @AppStorage("noctweave.relay.appearance") private var appearanceRaw = NoctweaveAppearanceMode.system.rawValue
+    @ObservedObject private var uiPreferences = RelayUIPreferences.shared
     @State private var pendingPrivacyAcceptance = false
     @State private var pendingTermsAcceptance = false
     @State private var showingLegalDetails = false
@@ -65,11 +61,11 @@ struct ContentView: View {
     }
 
     private var requiresLegalAcceptance: Bool {
-        !acceptedPrivacyPolicy || !acceptedTermsOfUse
+        !uiPreferences.acceptedPrivacyPolicy || !uiPreferences.acceptedTermsOfUse
     }
 
     private var requiresPermissionPreflight: Bool {
-        !requiresLegalAcceptance && !completedPermissionPreflight
+        !requiresLegalAcceptance && !uiPreferences.completedPermissionPreflight
     }
 
     private var theme: NoctweaveThemeTokens {
@@ -123,35 +119,52 @@ struct ContentView: View {
                         Button("Retry Reset", role: .destructive) { Task { await model.purgeAndReset() } }
                     }
                 }.padding(40).frame(maxWidth: 600)
-            } else {
-            mainContent
-                .blur(radius: requiresLegalAcceptance || requiresPermissionPreflight ? 1.5 : 0)
-                .disabled(requiresLegalAcceptance || requiresPermissionPreflight)
-            if requiresLegalAcceptance {
-                ServerLegalAcceptanceView(
-                    acceptedPrivacyPolicy: $pendingPrivacyAcceptance,
-                    acceptedTermsOfUse: $pendingTermsAcceptance,
-                    onAccept: {
-                        acceptedPrivacyPolicy = pendingPrivacyAcceptance
-                        acceptedTermsOfUse = pendingTermsAcceptance
-                    }
-                )
-            } else if requiresPermissionPreflight {
-                ServerPermissionPreflightView(
-                    localNetworkStatus: model.localNetworkPermissionStatus,
-                    incomingStatus: model.incomingConnectionPermissionStatus,
-                    detailMessage: model.permissionProbeMessage,
-                    isRunningProbe: model.permissionProbeRunning,
-                    canContinue: model.permissionPreflightReady,
-                    onRequest: { model.runStartupPermissionProbe() },
-                    onContinue: {
-                        completedPermissionPreflight = true
-                        if !hasSeenSetupGuide {
-                            showingSetupGuide = true
+            } else if let protectionError = uiPreferences.protectionError {
+                VStack(spacing: 18) {
+                    Image(systemName: "lock.shield")
+                        .font(.system(size: 42))
+                    Text("Protected preferences unavailable")
+                        .font(.title2)
+                    Text(protectionError)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 12) {
+                        Button("Retry Keychain") { uiPreferences.reload() }
+                        Button("Purge and Reset", role: .destructive) {
+                            resetConfirmation = ""
+                            showingReset = true
                         }
                     }
-                )
-            }
+                }.padding(40).frame(maxWidth: 600)
+            } else {
+                mainContent
+                    .blur(radius: requiresLegalAcceptance || requiresPermissionPreflight ? 1.5 : 0)
+                    .disabled(requiresLegalAcceptance || requiresPermissionPreflight)
+                if requiresLegalAcceptance {
+                    ServerLegalAcceptanceView(
+                        acceptedPrivacyPolicy: $pendingPrivacyAcceptance,
+                        acceptedTermsOfUse: $pendingTermsAcceptance,
+                        onAccept: {
+                            uiPreferences.acceptedPrivacyPolicy = pendingPrivacyAcceptance
+                            uiPreferences.acceptedTermsOfUse = pendingTermsAcceptance
+                        }
+                    )
+                } else if requiresPermissionPreflight {
+                    ServerPermissionPreflightView(
+                        localNetworkStatus: model.localNetworkPermissionStatus,
+                        incomingStatus: model.incomingConnectionPermissionStatus,
+                        detailMessage: model.permissionProbeMessage,
+                        isRunningProbe: model.permissionProbeRunning,
+                        canContinue: model.permissionPreflightReady,
+                        onRequest: { model.runStartupPermissionProbe() },
+                        onContinue: {
+                            uiPreferences.completedPermissionPreflight = true
+                            if !uiPreferences.hasSeenSetupGuide {
+                                showingSetupGuide = true
+                            }
+                        }
+                    )
+                }
             }
         }
         .alert("Purge and reset Noctweave Relay?", isPresented: $showingReset) {
@@ -164,9 +177,10 @@ struct ContentView: View {
             Text("Stop this relay and permanently remove its local databases, hosted content, signing keys, credentials, and settings, including the configured external database. Files exported elsewhere and data offloaded to IPFS remain. This cannot be undone. Type RESET to continue.")
         }
         .onAppear {
-            pendingPrivacyAcceptance = acceptedPrivacyPolicy
-            pendingTermsAcceptance = acceptedTermsOfUse
-            if requiresPermissionPreflight && !model.permissionProbeHasRun {
+            pendingPrivacyAcceptance = uiPreferences.acceptedPrivacyPolicy
+            pendingTermsAcceptance = uiPreferences.acceptedTermsOfUse
+            if uiPreferences.protectionError == nil,
+               requiresPermissionPreflight && !model.permissionProbeHasRun {
                 model.runStartupPermissionProbe()
             }
         }
@@ -1266,25 +1280,25 @@ struct ContentView: View {
             RelaySupportSheetView()
         }
         .sheet(isPresented: $showingSetupGuide, onDismiss: {
-            hasSeenSetupGuide = true
+                        uiPreferences.hasSeenSetupGuide = true
         }) {
             RelaySetupGuideView(
                 canApplyProfiles: !model.isRunning,
                 onUsePrivateMessaging: {
                     model.applyPrivateMessagingRecommendedProfile()
                     selectedPanel = .overview
-                    hasSeenSetupGuide = true
+                        uiPreferences.hasSeenSetupGuide = true
                     showingSetupGuide = false
                 },
                 onUseRealtimeCommunities: {
                     model.applyRealtimeCommunityRecommendedProfile()
                     selectedPanel = .overview
-                    hasSeenSetupGuide = true
+                        uiPreferences.hasSeenSetupGuide = true
                     showingSetupGuide = false
                 },
                 onCustomize: {
                     selectedPanel = .profile
-                    hasSeenSetupGuide = true
+                        uiPreferences.hasSeenSetupGuide = true
                     showingSetupGuide = false
                 }
             )
@@ -1372,7 +1386,7 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Menu {
-                    Picker("Appearance", selection: $appearanceRaw) {
+                    Picker("Appearance", selection: $uiPreferences.appearanceRaw) {
                         ForEach(NoctweaveAppearanceMode.allCases) { mode in
                             Label(mode.title, systemImage: mode.symbol)
                                 .tag(mode.rawValue)
@@ -1384,7 +1398,7 @@ struct ContentView: View {
                             .frame(width: 16)
                         Text("Appearance")
                         Spacer()
-                        Text((NoctweaveAppearanceMode(rawValue: appearanceRaw) ?? .system).title)
+                    Text((NoctweaveAppearanceMode(rawValue: uiPreferences.appearanceRaw) ?? .system).title)
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption.weight(.semibold))

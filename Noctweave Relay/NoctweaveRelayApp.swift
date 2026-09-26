@@ -25,10 +25,10 @@ struct NoctweaveRelayApp: App {
 #if canImport(AppKit)
     @NSApplicationDelegateAdaptor(RelayAppDelegate.self) private var appDelegate
 #endif
-    @AppStorage("noctweave.relay.appearance") private var appearanceRaw = NoctweaveAppearanceMode.system.rawValue
+    @ObservedObject private var uiPreferences = RelayUIPreferences.shared
 
     private var appearance: NoctweaveAppearanceMode {
-        NoctweaveAppearanceMode(rawValue: appearanceRaw) ?? .system
+        NoctweaveAppearanceMode(rawValue: uiPreferences.appearanceRaw) ?? .system
     }
 
     @StateObject private var session = RelayApplicationSession()
@@ -50,6 +50,7 @@ private final class RelayApplicationSession: ObservableObject {
     private func connectReset() {
         model.onResetCompleted = { [weak self] in
             guard let self else { return }
+            RelayUIPreferences.shared.resetInMemory()
             self.model = ServerViewModel()
             self.connectReset()
         }
