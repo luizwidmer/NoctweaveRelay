@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise native (and sibling Docker) TURN ACLs against the bundled helper.
+"""Exercise native (and sibling Docker) STUN/TURN against the bundled helper.
 
 All listeners bind loopback and credentials are synthetic. The probe allocates
 one TURN UDP endpoint at a time and issues CREATE_PERMISSION requests only. It never
@@ -76,6 +76,17 @@ def run(root, config_name, ipv6=False):
                     packet, transaction_id = message(kind, attributes, key, transaction_id)
                     sock.sendto(packet, endpoint)
                     return parse(sock.recv(65_535), transaction_id)
+
+                deadline = time.monotonic() + 8
+                while True:
+                    try:
+                        kind, attributes, code = exchange(1, [])
+                        break
+                    except socket.timeout:
+                        if time.monotonic() > deadline:
+                            raise
+                assert kind == 0x101 and code is None and 0x20 in attributes, (
+                    kind, attributes, code)
 
                 allocate = [attr(0x19, b"\x11\0\0\0")]
                 if ipv6:
@@ -167,7 +178,7 @@ print(c.configurationText)
             for target in ["::1", "::ffff:10.0.0.1", "fc00::1", "fe80::1"]:
                 assert ipv6_results[target]["error"] == 403, (name, target, ipv6_results[target])
             assert ipv6_results["2001:4860:4860::8888"]["type"] == "0x108", (name, ipv6_results)
-        print("Managed TURN peer policy checks passed (permissions only; no peer traffic).")
+        print("Managed STUN/TURN loopback and peer policy checks passed (no peer traffic).")
 
 if __name__ == "__main__":
     main()

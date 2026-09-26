@@ -4,6 +4,37 @@ import XCTest
 @testable import Noctweave_Relay
 
 final class RelayEncryptedLocalFileTests: XCTestCase {
+    @MainActor
+    func testSettingsSurviveReopenAndCorruptionBlocksStartup() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NoctweaveRelaySettings-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settingsURL = directory.appendingPathComponent("relay_settings.json")
+        let relayName = "private-relay-name-\(UUID().uuidString)"
+
+        let first = ServerViewModel(storageDirectory: directory)
+        first.relayName = relayName
+        try await Task.sleep(for: .milliseconds(600))
+
+        var stored = try Data(contentsOf: settingsURL)
+        XCTAssertTrue(stored.starts(with: Data("NWRF1".utf8)))
+        XCTAssertNil(stored.range(of: Data(relayName.utf8)))
+
+        let reopened = ServerViewModel(storageDirectory: directory)
+        XCTAssertEqual(reopened.relayName, relayName)
+
+        stored = try Data(contentsOf: settingsURL)
+        stored[stored.index(before: stored.endIndex)] ^= 0x01
+        try stored.write(to: settingsURL, options: [.atomic])
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: settingsURL.path)
+
+        let corrupted = ServerViewModel(storageDirectory: directory)
+        corrupted.start()
+        XCTAssertFalse(corrupted.isRunning)
+        XCTAssertTrue(corrupted.lastError?.contains("could not be decrypted") == true)
+    }
+
     func testCiphertextHidesSettingsAndRejectsWrongKeyDomainAndTampering() throws {
         let key = SymmetricKey(data: Data(repeating: 0xA1, count: 32))
         let wrong = SymmetricKey(data: Data(repeating: 0xB2, count: 32))
