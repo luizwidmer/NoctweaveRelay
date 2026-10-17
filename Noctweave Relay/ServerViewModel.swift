@@ -1019,6 +1019,8 @@ final class ServerViewModel: ObservableObject {
     @Published var tlsIdentityPKCS12Path: String = ""
     @Published var tlsIdentityPassword: String = ""
     @Published var isRunning = false
+    @Published private(set) var isStarting = false
+    @Published private(set) var isStopping = false
     @Published var logs: [String] = []
     @Published var lastError: String?
     @Published var localNetworkPermissionStatus: StartupPermissionStatus = .idle
@@ -1032,6 +1034,7 @@ final class ServerViewModel: ObservableObject {
     @Published private(set) var resetIsPending = false
     var onResetCompleted: (() -> Void)?
     private var operations: [UUID: Task<Void, Never>] = [:]
+    private var startTask: Task<Void, Never>?
     private var retiringRuntimes: [UUID: Task<Void, Never>] = [:]
     private var openedStoreURLs = Set<URL>()
     private let isolatedStorage: Bool
@@ -1050,6 +1053,22 @@ final class ServerViewModel: ObservableObject {
     private var settingsCancellables: Set<AnyCancellable> = []
     private var isApplyingPersistedSettings = false
     private var secretStoreFailure: String?
+
+    var canEditStoppedConfiguration: Bool {
+        !isRunning && !isStarting && !isStopping && !resetIsPending
+    }
+
+    var runtimeStatusTitle: String {
+        if isStopping { return "Stopping" }
+        if isStarting { return "Starting" }
+        return isRunning ? "Online" : "Stopped"
+    }
+
+    var runtimeStatusDescription: String {
+        if isStopping { return "Draining relay work" }
+        if isStarting { return "Preparing the relay listener" }
+        return isRunning ? "Accepting relay traffic" : "Configuration is editable"
+    }
 
     var effectiveTLSEnabled: Bool {
         transportSecurityMode.advertisesTLS
@@ -1114,7 +1133,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func setCallTraversalEnabled(_ enabled: Bool) {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         iceServiceEnabled = enabled
         guard enabled, callTraversalDeploymentMode == .managed else { return }
         do {
@@ -1127,7 +1146,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func setCallTraversalDeploymentMode(_ mode: CallTraversalDeploymentMode) {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         callTraversalDeploymentMode = mode
         guard iceServiceEnabled, mode == .managed else { return }
         do {
@@ -1196,7 +1215,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func setNoctCordServicesEnabled(_ enabled: Bool) {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         realtimeRoutesEnabled = enabled
         sharedLogsEnabled = enabled
         ephemeralPresenceEnabled = enabled
@@ -1205,12 +1224,12 @@ final class ServerViewModel: ObservableObject {
     }
 
     func setNoctCordImmediateDelivery(_ enabled: Bool) {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         temporalBucketMode = enabled ? .disabled : .single
     }
 
     func setPairingLobbyEnabled(_ enabled: Bool) {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         pairingLobbyEnabled = enabled
         if enabled {
             realtimeRoutesEnabled = true
@@ -1219,7 +1238,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func applyNoctCordRecommendedProfile() {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         relayKind = .standard
         temporalBucketMode = .disabled
         realtimeRoutesEnabled = true
@@ -1230,7 +1249,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func applyPrivateMessagingRecommendedProfile() {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         relayKind = .standard
         federationMode = .solo
         temporalBucketMode = .single
@@ -1248,7 +1267,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func applyRealtimeCommunityRecommendedProfile() {
-        guard !isRunning else { return }
+        guard canEditStoppedConfiguration else { return }
         federationMode = .solo
         applyNoctCordRecommendedProfile()
     }
@@ -1365,11 +1384,7 @@ final class ServerViewModel: ObservableObject {
             return
         }
         openedStoreURLs.insert(storeURL)
-        server.onEvent = { [weak self] event in
-            Task { @MainActor in
-                self?.handle(event: event)
-            }
-        }
+        observeEvents(from: server)
         ManagedCoturnService.shared.$state
             .sink { [weak self] state in
                 self?.managedCoturnState = state
@@ -1383,13 +1398,26 @@ final class ServerViewModel: ObservableObject {
         persistSettings()
     }
 
-    private func runOperation(_ body: @escaping @MainActor () async -> Void) {
-        guard !resetIsPending else { return }
+    @discardableResult
+    private func runOperation(_ body: @escaping @MainActor () async -> Void) -> Task<Void, Never>? {
+        guard !resetIsPending else { return nil }
         let id = UUID()
-        operations[id] = Task { [weak self] in
+        let task = Task { [weak self] in
             defer { self?.operations[id] = nil }
             guard self?.resetIsPending == false else { return }
             await body()
+        }
+        operations[id] = task
+        return task
+    }
+
+    private func observeEvents(from observedServer: RelayServer) {
+        observedServer.onEvent = { [weak self, weak observedServer] event in
+            Task { @MainActor in
+                guard let self, let observedServer,
+                      self.server === observedServer else { return }
+                self.handle(event: event)
+            }
         }
     }
 
@@ -1433,6 +1461,9 @@ final class ServerViewModel: ObservableObject {
             for drain in Array(retiringRuntimes.values) { await drain.value }
             try await ManagedCoturnService.shared.stopAndRemoveConfiguration()
             isRunning = false
+            isStarting = false
+            isStopping = false
+            startTask = nil
             opaqueRouteSnapshotVault = nil
             server.onEvent = nil
             relayIdentityKeyMaterial = nil
@@ -1450,7 +1481,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func start() {
-        guard !resetIsPending else { return }
+        guard !resetIsPending, !isRunning, !isStarting, !isStopping else { return }
         guard secretStoreFailure == nil else {
             lastError = secretStoreFailure
             return
@@ -1639,20 +1670,24 @@ final class ServerViewModel: ObservableObject {
                 try await snapshotVault.save(snapshot)
             }
         }
-        server.onEvent = { [weak self] event in
-            Task { @MainActor in
-                self?.handle(event: event)
+        observeEvents(from: server)
+        let startingServer = server
+        let startingStore = store
+        isStarting = true
+        lastError = nil
+        startTask = runOperation { [self] in
+            defer {
+                if server === startingServer { startTask = nil }
             }
-        }
-        runOperation { [self] in
             do {
+                try Task.checkCancellation()
                 if let managedCoturnConfiguration {
                     try await ManagedCoturnService.shared.start(
                         configuration: managedCoturnConfiguration
                     )
                 }
                 if resolvedStoreURL != nil {
-                    try await store.loadFromDisk()
+                    try await startingStore.loadFromDisk()
                 }
                 // The primary relay schema must own creation of the shared
                 // SQLite file before feature tables are opened.
@@ -1663,13 +1698,23 @@ final class ServerViewModel: ObservableObject {
                 if let namespaceRecords = try Self.loadNamespaceRecords(
                     from: namespaceLedgerURL
                 ) {
-                    try await server.restoreNoctwebNamespaceRecords(
+                    try await startingServer.restoreNoctwebNamespaceRecords(
                         namespaceRecords
                     )
                 }
-                try server.start(host: trimmedHost, port: portValue)
-                isRunning = true
+                try Task.checkCancellation()
+                try startingServer.start(host: trimmedHost, port: portValue)
+                // Network.framework binds asynchronously. Only .started from
+                // this runtime can mark the relay online.
+            } catch is CancellationError {
+                if managedCoturnConfiguration != nil {
+                    ManagedCoturnService.shared.stop()
+                }
+                if server === startingServer { isStarting = false }
             } catch {
+                guard server === startingServer else { return }
+                isStarting = false
+                isRunning = false
                 if managedCoturnConfiguration != nil {
                     ManagedCoturnService.shared.stop()
                 }
@@ -1679,9 +1724,15 @@ final class ServerViewModel: ObservableObject {
     }
 
     func stop() {
+        guard !resetIsPending, !isStopping else { return }
         let stoppingServer = server
         let snapshotVault = opaqueRouteSnapshotVault
+        let pendingStart = startTask
+        pendingStart?.cancel()
+        isStarting = false
+        isStopping = true
         runOperation { [self] in
+            await pendingStart?.value
             await stoppingServer.retireAndDrain()
             do {
                 if let snapshotVault {
@@ -1699,12 +1750,15 @@ final class ServerViewModel: ObservableObject {
                 )
             }
             ManagedCoturnService.shared.stop()
-            isRunning = false
+            if server === stoppingServer {
+                isRunning = false
+                isStopping = false
+            }
         }
     }
 
     func rotateRelayIdentity() {
-        guard !isRunning else {
+        guard !isRunning, !isStarting, !isStopping else {
             lastError = NoctwebLifecycleError.relayMustBeStopped.localizedDescription
             return
         }
@@ -1809,7 +1863,7 @@ final class ServerViewModel: ObservableObject {
     }
 
     func releaseNoctwebSuffix() {
-        guard !isRunning else {
+        guard !isRunning, !isStarting, !isStopping else {
             lastError = NoctwebLifecycleError.relayMustBeStopped.localizedDescription
             return
         }
@@ -1946,11 +2000,24 @@ final class ServerViewModel: ObservableObject {
         guard !resetIsPending else { return }
         switch event {
         case .started(let port):
+            guard isStarting, !isStopping else { return }
+            isStarting = false
+            isRunning = true
             appendLog("Server started on \(host):\(port)")
         case .stopped:
+            isRunning = false
             appendLog("Server stopped")
         case .error(let message):
             appendLog("Error: \(redactedRelayMessage(message, fallback: "Relay operation failed."))")
+            // Core currently reports listener failure through this one fixed
+            // lifecycle marker. Request/connection/namespace errors are not
+            // terminal server failures and must leave a healthy listener up.
+            if message == "Listener failed" {
+                lastError = "The relay listener could not start. Check its host and port."
+                isRunning = false
+                isStarting = false
+                stop()
+            }
         }
     }
 
@@ -2072,8 +2139,9 @@ final class ServerViewModel: ObservableObject {
         let registrationToken = coordinatorRegistrationToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let tlsPath = tlsIdentityPKCS12Path.trimmingCharacters(in: .whitespacesAndNewlines)
         let tlsPassword = tlsIdentityPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-        let minutes = max(1, Int(temporalBucketMinutes) ?? 5)
-        let singleBucketSeconds = minutes * 60
+        let singleBucketSeconds = RelayRuntimePolicy.minuteSettingSeconds(
+            temporalBucketMinutes, fallbackSeconds: 5 * 60
+        )
         let scheduleSeconds = parseBucketScheduleMinutes(temporalBucketScheduleMinutes)
         let activeScheduleSeconds: [Int]
         let effectiveBucketSeconds: Int
@@ -2089,8 +2157,12 @@ final class ServerViewModel: ObservableObject {
             activeScheduleSeconds = scheduleSeconds.isEmpty ? defaultSchedule : scheduleSeconds
             effectiveBucketSeconds = activeScheduleSeconds.first ?? singleBucketSeconds
         }
-        let defaultAttachmentTTLSeconds = max(1, Int(attachmentDefaultTTLMinutes) ?? 60) * 60
-        let maxAttachmentTTLSeconds = max(1, Int(attachmentMaxTTLMinutes) ?? 360) * 60
+        let defaultAttachmentTTLSeconds = RelayRuntimePolicy.minuteSettingSeconds(
+            attachmentDefaultTTLMinutes, fallbackSeconds: 60 * 60
+        )
+        let maxAttachmentTTLSeconds = RelayRuntimePolicy.minuteSettingSeconds(
+            attachmentMaxTTLMinutes, fallbackSeconds: 360 * 60
+        )
         let hiddenRetrieval = hiddenRetrievalEnabled
             ? HiddenRetrievalSupport(
                 mode: hiddenRetrievalMode,
@@ -2390,8 +2462,8 @@ final class ServerViewModel: ObservableObject {
             .split(separator: ",")
             .compactMap { component in
                 let trimmed = component.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard let minutes = Int(trimmed), minutes > 0 else { return nil }
-                return minutes * 60
+                guard let minutes = Int(trimmed) else { return nil }
+                return RelayRuntimePolicy.seconds(fromPositiveMinutes: minutes)
             }
             )
         ).sorted()
@@ -2986,11 +3058,7 @@ final class ServerViewModel: ObservableObject {
             coturnCredentialIssuer: makeCoturnCredentialIssuer()
         )
         configureNamespacePersistence(on: server)
-        server.onEvent = { [weak self] event in
-            Task { @MainActor in
-                self?.handle(event: event)
-            }
-        }
+        observeEvents(from: server)
     }
 
     private func parsedICEURLs() -> [String] {

@@ -4,6 +4,28 @@ import XCTest
 
 @MainActor
 final class RelayAppResetTests: XCTestCase {
+    func testProtectedSettingsWithOverflowingMinuteFieldsCanBeReopened() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("relay-minute-settings-test-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = ServerViewModel(storageDirectory: root)
+        model.temporalBucketMinutes = String(Int.max)
+        model.temporalBucketScheduleMinutes = "5,\(Int.max),10"
+        model.temporalBucketMode = .multi
+        model.attachmentDefaultTTLMinutes = String(Int.max)
+        model.attachmentMaxTTLMinutes = String(Int.max)
+        // The production persistence publisher debounces edits for 200 ms.
+        try await Task.sleep(for: .milliseconds(400))
+
+        let reopened = ServerViewModel(storageDirectory: root)
+
+        XCTAssertEqual(reopened.temporalBucketMinutes, String(Int.max))
+        XCTAssertEqual(reopened.temporalBucketScheduleMinutes, "5,\(Int.max),10")
+        XCTAssertEqual(reopened.attachmentDefaultTTLMinutes, String(Int.max))
+        XCTAssertEqual(reopened.attachmentMaxTTLMinutes, String(Int.max))
+        XCTAssertFalse(reopened.resetIsPending)
+        XCTAssertNil(reopened.lastError)
+    }
+
     func testModelResetRemovesSettingsAndStartsFresh() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("relay-model-reset-test-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

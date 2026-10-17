@@ -462,7 +462,7 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    .disabled(model.isRunning)
+                    .disabled(!model.canEditStoppedConfiguration)
                     .id(RelayPanel.profile)
                             }
 
@@ -563,7 +563,7 @@ struct ContentView: View {
 
                                 }
                             }
-                            .disabled(model.isRunning)
+                            .disabled(!model.canEditStoppedConfiguration)
 
                             Divider().opacity(0.2)
 
@@ -593,7 +593,7 @@ struct ContentView: View {
                                     }
                                 }
                                 .relayButton()
-                                .disabled(model.isRunning || model.relayKind != .standard)
+                                .disabled(!model.canEditStoppedConfiguration || model.relayKind != .standard)
                             }
 
                             Divider().opacity(0.2)
@@ -849,7 +849,7 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .disabled(model.isRunning)
+                    .disabled(!model.canEditStoppedConfiguration)
                     .id(RelayPanel.storage)
                     }
 
@@ -892,7 +892,7 @@ struct ContentView: View {
                             .toggleStyle(.switch)
                             .tint(.mint)
                             .disabled(
-                                model.isRunning
+                                !model.canEditStoppedConfiguration
                                     || model.relayKind == .host
                                     || (
                                         model.relayKind != .standard
@@ -979,7 +979,7 @@ struct ContentView: View {
                                     .toggleStyle(.switch)
                                     .tint(.mint)
                                     .disabled(
-                                        model.isRunning
+                                        !model.canEditStoppedConfiguration
                                             || !model.effectiveNoctwebHostingEnabled
                                     )
                             }
@@ -997,7 +997,7 @@ struct ContentView: View {
                                     "Allow privileged database creation",
                                     isOn: $model.noctwebDataDatabaseCreationEnabled
                                 )
-                                .disabled(model.isRunning)
+                                .disabled(!model.canEditStoppedConfiguration)
                                 Text(
                                     "Default off. Enabling creation also requires a relay password; ordinary hosted pages never receive it."
                                 )
@@ -1047,7 +1047,7 @@ struct ContentView: View {
                                 )
                                 .relayFieldStyle()
                                 .disabled(
-                                    model.isRunning
+                                    !model.canEditStoppedConfiguration
                                         || model.claimedNoctwebSuffix != nil
                                 )
 
@@ -1076,7 +1076,7 @@ struct ContentView: View {
                                     )
                                 }
                                 .buttonStyle(.bordered)
-                                .disabled(model.isRunning)
+                                .disabled(!model.canEditStoppedConfiguration)
 
                                 Button(role: .destructive) {
                                     showingNoctwebSuffixRelease = true
@@ -1088,7 +1088,7 @@ struct ContentView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .disabled(
-                                    model.isRunning
+                                    !model.canEditStoppedConfiguration
                                         || model.claimedNoctwebSuffix == nil
                                 )
                             }
@@ -1204,7 +1204,7 @@ struct ContentView: View {
                         callTraversalSettings
 
                     }
-                    .disabled(model.isRunning)
+                    .disabled(!model.canEditStoppedConfiguration)
                     .id(RelayPanel.security)
                     }
 
@@ -1283,7 +1283,7 @@ struct ContentView: View {
                         uiPreferences.hasSeenSetupGuide = true
         }) {
             RelaySetupGuideView(
-                canApplyProfiles: !model.isRunning,
+                canApplyProfiles: model.canEditStoppedConfiguration,
                 onUsePrivateMessaging: {
                     model.applyPrivateMessagingRecommendedProfile()
                     selectedPanel = .overview
@@ -1416,7 +1416,7 @@ struct ContentView: View {
                 Divider()
 
                 Label(
-                    model.isRunning ? "Relay online" : "Relay stopped",
+                    "Relay \(model.runtimeStatusTitle.lowercased())",
                     systemImage: model.isRunning ? "checkmark.circle.fill" : "pause.circle"
                 )
                 .font(.caption.weight(.semibold))
@@ -1489,8 +1489,8 @@ struct ContentView: View {
             ) {
                 overviewSummaryCard(
                     title: "Runtime",
-                    value: model.isRunning ? "Online" : "Stopped",
-                    detail: model.isRunning ? "Accepting relay traffic" : "Configuration is editable",
+                    value: model.runtimeStatusTitle,
+                    detail: model.runtimeStatusDescription,
                     icon: model.isRunning ? "checkmark.circle.fill" : "pause.circle",
                     color: model.isRunning ? .green : .secondary
                 )
@@ -1576,7 +1576,7 @@ struct ContentView: View {
 
     private var runningStatusBadge: some View {
         statusBadge(
-            model.isRunning ? "Running" : "Stopped",
+            model.runtimeStatusTitle,
             icon: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill",
             color: model.isRunning ? .green : .secondary
         )
@@ -1627,7 +1627,7 @@ struct ContentView: View {
                 TextField("0.0.0.0", text: $model.host)
                     .relayFieldStyle()
                     .frame(width: 190)
-                    .disabled(model.isRunning)
+                    .disabled(!model.canEditStoppedConfiguration)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Port")
@@ -1636,7 +1636,7 @@ struct ContentView: View {
                 TextField("9339", text: $model.port)
                     .relayFieldStyle()
                     .frame(width: 100)
-                    .disabled(model.isRunning)
+                    .disabled(!model.canEditStoppedConfiguration)
             }
         }
     }
@@ -1644,18 +1644,19 @@ struct ContentView: View {
     private var headerActions: some View {
         HStack(spacing: 8) {
             Button {
-                if model.isRunning {
+                if model.isRunning || model.isStarting {
                     model.stop()
                 } else {
                     model.start()
                 }
             } label: {
                 Label(
-                    model.isRunning ? "Stop" : "Start",
-                    systemImage: model.isRunning ? "stop.fill" : "play.fill"
+                    model.isStopping ? "Stopping…" : model.isStarting ? "Cancel Start" : model.isRunning ? "Stop" : "Start",
+                    systemImage: model.isRunning || model.isStarting || model.isStopping ? "stop.fill" : "play.fill"
                 )
             }
             .relayButton(prominent: true)
+            .disabled(model.isStopping || model.resetIsPending)
 
             Button {
                 model.runStartupPermissionProbe()
