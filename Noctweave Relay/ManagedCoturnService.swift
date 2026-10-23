@@ -248,12 +248,26 @@ final class ManagedCoturnService: ObservableObject {
     private var process: Process?
     private var outputPipe: Pipe?
     private var requestedStop = false
+    private var removingConfiguration = false
     private var activeSecret = ""
 
     private init() {}
 
-    func start(configuration: ManagedCoturnConfiguration) async throws {
+    func start(
+        configuration: ManagedCoturnConfiguration,
+        onProcessLaunched: ((Process) -> Void)? = nil
+    ) async throws {
+        guard !removingConfiguration else {
+            throw ManagedCoturnError.launchFailed(
+                "The call traversal process is being stopped and reset."
+            )
+        }
         if process?.isRunning == true {
+            guard !requestedStop else {
+                throw ManagedCoturnError.launchFailed(
+                    "The previous call traversal process is still stopping."
+                )
+            }
             state = .running(processIdentifier: process?.processIdentifier ?? 0)
             return
         }
@@ -269,7 +283,14 @@ final class ManagedCoturnService: ObservableObject {
         activeSecret = configuration.sharedSecret
         requestedStop = false
 
-        let configurationURL = try writePrivateConfiguration(configuration)
+        let configurationURL: URL
+        do {
+            configurationURL = try writePrivateConfiguration(configuration)
+        } catch {
+            activeSecret = ""
+            state = .failed(error.localizedDescription)
+            throw error
+        }
         let outputPipe = Pipe()
         self.outputPipe = outputPipe
 
@@ -314,8 +335,12 @@ final class ManagedCoturnService: ObservableObject {
         do {
             try process.run()
             self.process = process
+            onProcessLaunched?(process)
             try await Task.sleep(for: .milliseconds(350))
-            guard process.isRunning else {
+            guard process.isRunning, self.process === process, !requestedStop else {
+                if requestedStop || self.process !== process {
+                    throw CancellationError()
+                }
                 let launchDetail: String
                 if !recentLog.isEmpty {
                     launchDetail = recentLog.split(separator: "\n").last.map(String.init)
@@ -333,13 +358,33 @@ final class ManagedCoturnService: ObservableObject {
             Self.removePrivateConfiguration(at: configurationURL)
             state = .running(processIdentifier: process.processIdentifier)
         } catch {
+            let ownsCurrentProcess = self.process === process
+            let wasStopping = error is CancellationError || (ownsCurrentProcess && requestedStop)
+            if ownsCurrentProcess { requestedStop = true }
+            if process.isRunning { process.terminate() }
+            let stopped = await Self.waitForProcessExit(process)
             Self.removePrivateConfiguration(at: configurationURL)
+            guard stopped else {
+                // Keep the process and pipe reachable so a later stop/reset can
+                // retry, and keep its secret available to redact its logs.
+                let failure = ManagedCoturnError.launchFailed(
+                    "The call traversal process did not stop after startup failed. Stop it before retrying."
+                )
+                if self.process === process { state = .failed(failure.localizedDescription) }
+                throw failure
+            }
             outputPipe.fileHandleForReading.readabilityHandler = nil
-            self.outputPipe = nil
-            self.process = nil
-            activeSecret = ""
-            let message = error.localizedDescription
-            state = .failed(message)
+            let ownsOutputPipe = self.outputPipe === outputPipe
+            if ownsOutputPipe {
+                self.outputPipe = nil
+                activeSecret = ""
+            }
+            if self.process === process {
+                self.process = nil
+                state = wasStopping ? .stopped : .failed(error.localizedDescription)
+            } else if ownsOutputPipe {
+                state = .failed(error.localizedDescription)
+            }
             throw error
         }
     }
@@ -356,19 +401,25 @@ final class ManagedCoturnService: ObservableObject {
             process.terminate()
         } else {
             self.process = nil
+            outputPipe?.fileHandleForReading.readabilityHandler = nil
             outputPipe = nil
+            activeSecret = ""
             state = .stopped
         }
     }
 
     func stopAndRemoveConfiguration() async throws {
+        guard !removingConfiguration else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSLocalizedDescriptionKey: "The call traversal process is already being stopped and reset."
+            ])
+        }
+        removingConfiguration = true
+        defer { removingConfiguration = false }
         let running = process
         stop()
         if let running {
-            for _ in 0..<100 where running.isRunning {
-                try await Task.sleep(nanoseconds: 50_000_000)
-            }
-            guard !running.isRunning else {
+            guard await Self.waitForProcessExit(running) else {
                 throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "The call traversal process has not stopped yet."])
             }
         }
@@ -380,6 +431,19 @@ final class ManagedCoturnService: ObservableObject {
             try FileManager.default.removeItem(at: directory)
         }
         state = .stopped
+    }
+
+    private static func waitForProcessExit(_ process: Process) async -> Bool {
+        for _ in 0..<100 where process.isRunning {
+            // The caller can already be cancelled during startup teardown.
+            // A detached timer still gives the helper time to exit.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(50)) {
+                    continuation.resume()
+                }
+            }
+        }
+        return !process.isRunning
     }
 
     private func writePrivateConfiguration(

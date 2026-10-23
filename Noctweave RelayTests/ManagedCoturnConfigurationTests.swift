@@ -148,4 +148,39 @@ final class ManagedCoturnConfigurationTests: XCTestCase {
         )
         XCTAssertTrue(entries.isEmpty)
     }
+
+    @MainActor
+    func testCancellingManagedStartupStopsLaunchedHelper() async throws {
+        let service = ManagedCoturnService.shared
+        try await service.stopAndRemoveConfiguration()
+        let configuration = try ManagedCoturnConfiguration(
+            advertisedHost: "127.0.0.1",
+            realm: "noctweave-cancellation-test",
+            sharedSecret: secret,
+            listeningPort: 53_479,
+            minimumRelayPort: 55_005,
+            maximumRelayPort: 55_009
+        )
+        var helper: Process?
+        let startup = Task {
+            try await service.start(configuration: configuration) { process in
+                helper = process
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+        }
+        do {
+            try await startup.value
+            XCTFail("Cancelled startup completed successfully")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Cancelled startup returned \(error)")
+        }
+        defer {
+            if helper?.isRunning == true { helper?.terminate() }
+            service.stop()
+        }
+        XCTAssertNotNil(helper)
+        XCTAssertFalse(helper?.isRunning ?? true, "Cancelled startup left the TURN helper running")
+        try await service.stopAndRemoveConfiguration()
+    }
 }
