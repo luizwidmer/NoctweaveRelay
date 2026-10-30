@@ -8,6 +8,14 @@
 		<data>
 		OCBTiW2O8a4ejWTp4GK/hNpwQ7s=
 		</data>
+		<key>Resources/Libevent-LICENSE.txt</key>
+		<data>
+		DzdTdLh3VQreLgAZBaH5ybcShxQ=
+		</data>
+		<key>Resources/OpenSSL-LICENSE.txt</key>
+		<data>
+		xcimj0uAkps+ZvBU83u54WB4hH8=
+		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
@@ -16,6 +24,20 @@
 			<key>hash2</key>
 			<data>
 			TSvJufY58ba2+iAN033B4Rcq/F2QFlx6opR3azy5mCQ=
+			</data>
+		</dict>
+		<key>Resources/Libevent-LICENSE.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			/wLv/JszHtzaw4fRmGkb+j5XXn0kStEMuCaqUe8IVnA=
+			</data>
+		</dict>
+		<key>Resources/OpenSSL-LICENSE.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			fVRQyy0UJlG4r6MVtfI478gF2tgn2RujZ9hRa8nUnno=
 			</data>
 		</dict>
 	</dict>

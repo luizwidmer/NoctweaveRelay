@@ -1,11 +1,11 @@
-coturn 4.17.2
-Source: https://github.com/coturn/coturn/archive/refs/tags/4.17.2.tar.gz
-SHA-256: 645a1beaeeba2684139d9b342d30320ac57a415577b6356dad9df20025cf5315
+coturn 4.18.0
+Source: https://github.com/coturn/coturn/archive/refs/tags/4.18.0.tar.gz
+SHA-256: 28d55294ac596fbd129b293a85e7bb1c5dc4bd15b7fb55c500f355149e5f4e28
 
-Xcode 26.6
-Build version 17F113
-macOS SDK: 26.5
-OpenSSL 3.6.3 9 Jun 2026 (Library: OpenSSL 3.6.3 9 Jun 2026)
+Xcode 27.0
+Build version 27A266a
+macOS SDK: 27.0
+OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)
 #define EVENT__VERSION "2.1.13-stable"
 
-UUID: 89E08916-AB9B-351A-BDDE-74DDAAF946C0 (arm64)
+UUID: 12A98FCF-7318-3148-9EF3-36733C59B4B9 (arm64)

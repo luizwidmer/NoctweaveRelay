@@ -86,7 +86,7 @@ plaintext, or media plaintext.
 ## Optional call traversal
 
 Open **Transport** and enable **Call connectivity**. The native app bundles a
-minimal coturn 4.17.2 service, generates its private credential key, advertises
+minimal coturn 4.18.0 service, generates its private credential key, advertises
 `nw.ice-service@1`, issues short-lived TURN credentials, and starts or stops the
 service with the relay. A local-network address is detected automatically, so a
 LAN relay needs no separate coturn install, Docker container, account, or manual
@@ -135,8 +135,14 @@ then copies the dSYM to Xcode's symbol output directory. An archive must contain
 both `Noctweave Relay.app.dSYM` and `ManagedCoturn.bundle.dSYM` in `dSYMs`.
 The helper symbols stay outside the app bundle.
 
-To rebuild coturn, install the OpenSSL 3 and libevent development libraries
-(for example, `brew install openssl@3 libevent pkgconf`) and run:
+To rebuild coturn, provide OpenSSL 3.5.9 LTS and libevent 2.1.13 development
+libraries. The script checks both versions and fails before modifying the
+bundle if either differs. The audited helper was built with an isolated
+OpenSSL 3.5.9 source build (official archive SHA-256
+`603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a`)
+and Homebrew libevent 2.1.13. Point `OPENSSL_PREFIX` and `LIBEVENT_PREFIX` at
+these installations, and set `OPENSSL_LICENSE_FILE` if the OpenSSL prefix does
+not contain `LICENSE.txt`. Then run:
 
 ```sh
 Scripts/build-managed-coturn.sh
@@ -144,12 +150,15 @@ Scripts/build-managed-coturn.sh
 
 The script verifies the pinned coturn source checksum, builds the minimal arm64
 helper with debug information, retains the dSYM before stripping, and signs the
-helper locally with its sandbox inheritance entitlements. Xcode signs the helper
-again when embedding it. `OPENSSL_PREFIX` and `LIBEVENT_PREFIX` can select other
+helper locally with its sandbox inheritance entitlements. It stages and checks
+the signed helper, licenses, symbols, and build record before replacing the
+previous pair; a failed stage leaves the previous files intact. Xcode signs the
+helper again when embedding it. `OPENSSL_PREFIX` and `LIBEVENT_PREFIX` select matching
 installed dependency prefixes; `COTURN_SOURCE_ARCHIVE` can supply a previously
 downloaded source tarball, which is checked against the same checksum.
 `Symbols/ManagedCoturn-build.txt` records the toolchain, dependencies, and UUID.
-Keep the regenerated helper, signature, dSYM, and build record together.
+Keep the regenerated helper, signature, dSYM, build record, and bundled OpenSSL
+and libevent license texts together.
 
 After replacing a helper that lacked symbols, create a new archive. A dSYM from
 the rebuilt helper cannot repair an older archive with a different helper UUID.

@@ -126,14 +126,12 @@ struct ManagedCoturnConfiguration: Equatable {
             "min-port=\(minimumRelayPort)",
             "max-port=\(maximumRelayPort)",
             "stale-nonce=600",
-            "no-cli",
+            "cli=0",
             "no-tls",
-            "no-dtls",
             "no-multicast-peers",
             "user-quota=12",
             "total-quota=1200",
-            "log-file=stdout",
-            "simple-log"
+            "log-file=stdout"
         ]
         // TURN credentials authorize public call transport, not access to the
         // operator's LAN or services reachable only from the relay machine.
@@ -238,6 +236,57 @@ enum ManagedCoturnError: LocalizedError {
     }
 }
 
+/// Process output arrives in arbitrary chunks. Hold only a suffix that may be
+/// the start of the secret so a split value never reaches the UI log.
+struct ManagedCoturnLogRedactor {
+    private let secret: [UInt8]
+    private let fallback: [Int]
+    private var matched = 0
+
+    init(secret: String) {
+        self.secret = Array(secret.utf8)
+        var fallback = Array(repeating: 0, count: self.secret.count)
+        if self.secret.count > 1 {
+            var prefix = 0
+            for index in 1..<self.secret.count {
+                while prefix > 0 && self.secret[index] != self.secret[prefix] {
+                    prefix = fallback[prefix - 1]
+                }
+                if self.secret[index] == self.secret[prefix] { prefix += 1 }
+                fallback[index] = prefix
+            }
+        }
+        self.fallback = fallback
+    }
+
+    mutating func append(_ chunk: String) -> String {
+        append(Data(chunk.utf8))
+    }
+
+    mutating func append(_ chunk: Data) -> String {
+        guard !secret.isEmpty else { return String(decoding: chunk, as: UTF8.self) }
+        var output = [UInt8]()
+        output.reserveCapacity(chunk.count)
+        for byte in chunk {
+            while matched > 0 && secret[matched] != byte {
+                let next = fallback[matched - 1]
+                output.append(contentsOf: secret.prefix(matched - next))
+                matched = next
+            }
+            if secret[matched] == byte {
+                matched += 1
+                if matched == secret.count {
+                    matched = 0
+                    output.append(contentsOf: "[redacted]".utf8)
+                }
+            } else {
+                output.append(byte)
+            }
+        }
+        return String(decoding: output, as: UTF8.self)
+    }
+}
+
 @MainActor
 final class ManagedCoturnService: ObservableObject {
     static let shared = ManagedCoturnService()
@@ -249,7 +298,8 @@ final class ManagedCoturnService: ObservableObject {
     private var outputPipe: Pipe?
     private var requestedStop = false
     private var removingConfiguration = false
-    private var activeSecret = ""
+    private var logRedactor: ManagedCoturnLogRedactor?
+    private var logGeneration: UUID?
 
     private init() {}
 
@@ -280,14 +330,17 @@ final class ManagedCoturnService: ObservableObject {
 
         state = .starting
         recentLog = ""
-        activeSecret = configuration.sharedSecret
+        logRedactor = ManagedCoturnLogRedactor(secret: configuration.sharedSecret)
+        let generation = UUID()
+        logGeneration = generation
         requestedStop = false
 
         let configurationURL: URL
         do {
             configurationURL = try writePrivateConfiguration(configuration)
         } catch {
-            activeSecret = ""
+            logRedactor = nil
+            logGeneration = nil
             state = .failed(error.localizedDescription)
             throw error
         }
@@ -296,13 +349,11 @@ final class ManagedCoturnService: ObservableObject {
 
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard let self,
-                  !data.isEmpty,
-                  let text = String(data: data, encoding: .utf8) else {
+            guard let self, !data.isEmpty else {
                 return
             }
-            Task { @MainActor [self] in
-                self.record(text)
+            Task { @MainActor [weak self] in
+                self?.record(data, generation: generation)
             }
         }
 
@@ -319,7 +370,8 @@ final class ManagedCoturnService: ObservableObject {
                 self.outputPipe?.fileHandleForReading.readabilityHandler = nil
                 self.outputPipe = nil
                 self.process = nil
-                self.activeSecret = ""
+                self.logRedactor = nil
+                self.logGeneration = nil
                 if self.requestedStop {
                     self.state = .stopped
                 } else {
@@ -366,7 +418,7 @@ final class ManagedCoturnService: ObservableObject {
             Self.removePrivateConfiguration(at: configurationURL)
             guard stopped else {
                 // Keep the process and pipe reachable so a later stop/reset can
-                // retry, and keep its secret available to redact its logs.
+                // retry, and keep its redactor available for any later logs.
                 let failure = ManagedCoturnError.launchFailed(
                     "The call traversal process did not stop after startup failed. Stop it before retrying."
                 )
@@ -377,7 +429,8 @@ final class ManagedCoturnService: ObservableObject {
             let ownsOutputPipe = self.outputPipe === outputPipe
             if ownsOutputPipe {
                 self.outputPipe = nil
-                activeSecret = ""
+                logRedactor = nil
+                logGeneration = nil
             }
             if self.process === process {
                 self.process = nil
@@ -392,7 +445,8 @@ final class ManagedCoturnService: ObservableObject {
     func stop() {
         requestedStop = true
         guard let process else {
-            activeSecret = ""
+            logRedactor = nil
+            logGeneration = nil
             state = .stopped
             return
         }
@@ -403,7 +457,8 @@ final class ManagedCoturnService: ObservableObject {
             self.process = nil
             outputPipe?.fileHandleForReading.readabilityHandler = nil
             outputPipe = nil
-            activeSecret = ""
+            logRedactor = nil
+            logGeneration = nil
             state = .stopped
         }
     }
@@ -423,7 +478,8 @@ final class ManagedCoturnService: ObservableObject {
                 throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "The call traversal process has not stopped yet."])
             }
         }
-        activeSecret = ""
+        logRedactor = nil
+        logGeneration = nil
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("NoctweaveRelay")
             .appendingPathComponent("ManagedCoturn")
         if FileManager.default.fileExists(atPath: directory.path) {
@@ -477,10 +533,10 @@ final class ManagedCoturnService: ObservableObject {
         try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
-    private func record(_ rawText: String) {
-        let redacted = activeSecret.isEmpty
-            ? rawText
-            : rawText.replacingOccurrences(of: activeSecret, with: "[redacted]")
+    private func record(_ rawData: Data, generation: UUID) {
+        guard logGeneration == generation, var logRedactor else { return }
+        let redacted = logRedactor.append(rawData)
+        self.logRedactor = logRedactor
         recentLog = String((recentLog + redacted).suffix(8_192))
     }
 

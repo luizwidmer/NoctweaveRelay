@@ -4,6 +4,38 @@ import XCTest
 final class ManagedCoturnConfigurationTests: XCTestCase {
     private let secret = "0123456789abcdef0123456789abcdef"
 
+    func testManagedLogRedactsSecretAcrossEveryChunkBoundary() {
+        for split in 1..<secret.count {
+            let prefix = String(secret.prefix(split))
+            let suffix = String(secret.dropFirst(split))
+            var redactor = ManagedCoturnLogRedactor(secret: secret)
+            let first = redactor.append("before " + prefix)
+            let second = redactor.append(suffix + " after\n")
+            XCTAssertEqual(first + second, "before [redacted] after\n", "split \(split)")
+        }
+
+        var redactor = ManagedCoturnLogRedactor(secret: secret)
+        let chunks = ["prefix 0123", "0123456789abcdef0123456789abcdef", " suffix\n"]
+        XCTAssertEqual(chunks.map { redactor.append($0) }.joined(),
+                       "prefix 0123[redacted] suffix\n")
+
+        var overlapping = ManagedCoturnLogRedactor(secret: "ababac")
+        XCTAssertEqual(["ababa", "babac!"].map { overlapping.append($0) }.joined(),
+                       "abab[redacted]!")
+
+        var unicode = ManagedCoturnLogRedactor(secret: "e\u{301}abc")
+        XCTAssertEqual(["before e", "\u{301}abc after\n"].map { unicode.append($0) }.joined(),
+                       "before [redacted] after\n")
+
+        let bytes = Array("before e\u{301}abc after\n".utf8)
+        for split in 1..<bytes.count {
+            var byteRedactor = ManagedCoturnLogRedactor(secret: "e\u{301}abc")
+            let first = byteRedactor.append(Data(bytes[..<split]))
+            let second = byteRedactor.append(Data(bytes[split...]))
+            XCTAssertEqual(first + second, "before [redacted] after\n", "byte split \(split)")
+        }
+    }
+
     func testManagedConfigurationCreatesClientDiscoveryURLs() throws {
         let configuration = try ManagedCoturnConfiguration(
             advertisedHost: "calls.example.org",
@@ -39,9 +71,9 @@ final class ManagedCoturnConfigurationTests: XCTestCase {
         XCTAssertTrue(text.contains("listening-port=3479"))
         XCTAssertTrue(text.contains("min-port=50000"))
         XCTAssertTrue(text.contains("max-port=50020"))
-        XCTAssertTrue(text.contains("no-cli"))
+        XCTAssertTrue(text.contains("cli=0"))
         XCTAssertTrue(text.contains("no-tls"))
-        XCTAssertTrue(text.contains("no-dtls"))
+        XCTAssertFalse(text.contains("no-dtls"))
     }
 
     func testManagedConfigurationRejectsPrivatePeerDestinations() throws {
