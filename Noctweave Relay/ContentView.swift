@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var showingAdvancedStorage = false
     @State private var showingListenerSettings = false
     @State private var selectedPanel: RelayPanel = .overview
+    @State private var logSearch = ""
 
     private enum RelayPanel: String, CaseIterable, Identifiable {
         case overview
@@ -1209,50 +1210,7 @@ struct ContentView: View {
                     }
 
                     if selectedPanel == .logs {
-                    serverCard(
-                        title: "Relay Logs",
-                        subtitle: "Recent runtime events",
-                        icon: "text.append"
-                    ) {
-                        if model.logs.isEmpty {
-                            Text("No logs yet.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 6) {
-                                    ForEach(Array(model.logs.suffix(250).reversed()), id: \.self) { entry in
-                                        Text(entry)
-                                            .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                            .foregroundStyle(.secondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 6)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                    .fill(
-                                                        LinearGradient(
-                                                            colors: [
-                                                                theme.surfaceRaised,
-                                                                Color.noctweaveWine.opacity(0.14)
-                                                            ],
-                                                            startPoint: .topLeading,
-                                                            endPoint: .bottomTrailing
-                                                        )
-                                                    )
-                                                    .overlay(
-                                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                            .stroke(theme.border, lineWidth: 0.7)
-                                                    )
-                                            )
-                                    }
-                                }
-                            }
-                            .frame(minHeight: 180, maxHeight: 260)
-                        }
-                    }
-                    .id(RelayPanel.logs)
+                        relayLogs.id(RelayPanel.logs)
                     }
                         }
                         .padding(20)
@@ -1333,6 +1291,62 @@ struct ContentView: View {
         }
     }
 
+    private var relayLogs: some View {
+        let recentLogs = model.logs.suffix(250).reversed()
+        let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visibleLogs = recentLogs.filter { query.isEmpty || $0.localizedStandardContains(query) }
+
+        return serverCard(title: "Relay Logs", subtitle: "Recent runtime events", icon: "text.append") {
+            if recentLogs.isEmpty {
+                Text("Runtime events appear here as the relay starts and handles requests.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 9) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    TextField("Filter recent logs", text: $logSearch)
+                        .textFieldStyle(.plain)
+                    if !logSearch.isEmpty {
+                        Button("Clear log filter", systemImage: "xmark.circle.fill") { logSearch = "" }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.plain)
+                    }
+                }
+                .relayFieldStyle()
+
+                if visibleLogs.isEmpty {
+                    Label("No matching log entries", systemImage: "line.3.horizontal.decrease")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 12)
+                } else {
+                    if !query.isEmpty {
+                        Text("Showing \(visibleLogs.count) of \(recentLogs.count) recent entries")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 6) {
+                            ForEach(visibleLogs.indices, id: \.self) { index in
+                                Text(visibleLogs[index])
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 9))
+                            }
+                        }
+                    }
+                    .frame(minHeight: 180, maxHeight: 320)
+                }
+            }
+        }
+    }
+
     private var relaySidebar: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
@@ -1353,8 +1367,7 @@ struct ContentView: View {
 
             VStack(spacing: 6) {
                 ForEach(RelayPanel.allCases) { panel in
-                    if (panel != .federation || model.federationMode != .solo)
-                        && (panel != .logs || model.isRunning || !model.logs.isEmpty || selectedPanel == .logs) {
+                    if panel != .federation || model.federationMode != .solo {
                         Button {
                             selectedPanel = panel
                         } label: {
@@ -1378,6 +1391,7 @@ struct ContentView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(selectedPanel == panel ? .isSelected : [])
                     }
                 }
             }
